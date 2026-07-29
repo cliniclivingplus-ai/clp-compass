@@ -2,7 +2,8 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Plus, Pencil, FileText, Map, StickyNote, LayoutDashboard, Calendar, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Plus, Pencil, FileText, Map, StickyNote, LayoutDashboard, Calendar, ChevronRight, Microscope } from 'lucide-react'
+import ReportsTab from '@/components/ReportsTab'
 
 // ── Design tokens ────────────────────────────────────────────────────
 const C = {
@@ -21,6 +22,7 @@ const C = {
 
 type Patient = {
   id: string
+  clinic_patient_id?: string
   full_name: string
   gender?: string
   primary_concern?: string
@@ -50,6 +52,7 @@ type Roadmap = {
 
 const TABS = [
   { key: 'sessions', label: 'Sessions', icon: FileText },
+  { key: 'reports', label: 'Reports', icon: Microscope },
   { key: 'roadmaps', label: 'Roadmaps', icon: Map },
   { key: 'notes', label: 'Notes', icon: StickyNote },
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -148,7 +151,14 @@ export default function PatientPage() {
               {patient.full_name?.trim()?.charAt(0)?.toUpperCase() || '?'}
             </div>
             <div style={{ minWidth: 0 }}>
-              <h1 style={{ fontSize: 21, fontWeight: 700, color: C.ink, margin: 0, letterSpacing: '-0.02em' }}>{patient.full_name}</h1>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <h1 style={{ fontSize: 21, fontWeight: 700, color: C.ink, margin: 0, letterSpacing: '-0.02em' }}>{patient.full_name}</h1>
+                {patient.clinic_patient_id && (
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: C.greenDeep, background: C.greenSoft, border: `1px solid ${C.greenBorder}`, borderRadius: 20, padding: '2px 9px' }}>
+                    {patient.clinic_patient_id}
+                  </span>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 5, fontSize: 12.5, color: C.muted }}>
                 {patient.gender && <span style={{ textTransform: 'capitalize' }}>{patient.gender}</span>}
                 {patient.primary_concern && <><span>·</span><span style={{ color: C.greenDeep, fontWeight: 600 }}>{patient.primary_concern}</span></>}
@@ -221,6 +231,7 @@ export default function PatientPage() {
       {/* ── Tab panels ── */}
       <div style={{ marginTop: 22 }}>
         {tab === 'sessions' && <SessionsTab sessions={sessions} roadmaps={roadmaps} patientId={patientId} router={router} />}
+        {tab === 'reports' && <ReportsTab patientId={patientId} />}
         {tab === 'roadmaps' && <RoadmapsTab roadmaps={roadmaps} patientId={patientId} />}
         {tab === 'notes' && <NotesTab sessions={sessions} />}
         {tab === 'dashboard' && <DashboardTab roadmaps={roadmaps} />}
@@ -317,7 +328,7 @@ function SessionsTab({ sessions, roadmaps, patientId, router }: { sessions: Sess
 
 function RoadmapsTab({ roadmaps, patientId }: { roadmaps: Roadmap[]; patientId: string }) {
   if (roadmaps.length === 0) {
-    return <EmptyState icon={Map} title="No roadmaps yet" body="Generate a roadmap from any session to build the patient's personalised plan. It'll appear here for easy reference across visits." />
+    return <EmptyState icon={Map} title="No guides yet" body="Generate a PDF guide from any session to build the patient's personalised plan. It'll appear here for easy reference across visits." />
   }
   const ordered = [...roadmaps].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
   return (
@@ -325,7 +336,8 @@ function RoadmapsTab({ roadmaps, patientId }: { roadmaps: Roadmap[]; patientId: 
       {ordered.map((r, i) => (
         <Link
           key={r.id}
-          href={`/share/${r.id}`}
+          href={`/api/roadmaps/${r.id}/guide-pdf`}
+          target="_blank"
           style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: '16px 18px', textDecoration: 'none', display: 'block', boxShadow: '0 1px 2px rgba(26,36,23,0.03)' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
@@ -338,7 +350,7 @@ function RoadmapsTab({ roadmaps, patientId }: { roadmaps: Roadmap[]; patientId: 
             <span style={{ fontSize: 12, color: C.faint }}>{fmtDate(r.created_at)}</span>
           </div>
           {r.overview && <p style={{ fontSize: 13, color: C.muted, margin: '8px 0 0', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{r.overview}</p>}
-          <div style={{ fontSize: 12, color: C.green, fontWeight: 600, marginTop: 10 }}>Open shared roadmap →</div>
+          <div style={{ fontSize: 12, color: C.green, fontWeight: 600, marginTop: 10 }}>Download PDF guide →</div>
         </Link>
       ))}
     </div>

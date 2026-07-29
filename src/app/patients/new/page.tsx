@@ -1,16 +1,24 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 
+type Coach = { id: string; full_name: string }
+
 export default function NewPatientPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [clinicPatientId, setClinicPatientId] = useState('')
   const [name, setName] = useState('')
   const [gender, setGender] = useState('')
-  const [nutritionist, setNutritionist] = useState('')
+  const [nutritionistId, setNutritionistId] = useState('')
+  const [coaches, setCoaches] = useState<Coach[]>([])
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    fetch('/api/nutritionists').then((r) => r.json()).then((j) => setCoaches(Array.isArray(j) ? j : []))
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -21,7 +29,12 @@ export default function NewPatientPage() {
     const res = await fetch('/api/patients', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ full_name: name.trim(), gender: gender || null, assigned_nutritionist: nutritionist || null }),
+      body: JSON.stringify({
+        full_name: name.trim(),
+        clinic_patient_id: clinicPatientId.trim() || null,
+        gender: gender || null,
+        nutritionist_id: nutritionistId || null,
+      }),
     })
     const json = await res.json()
     if (!res.ok) { setError(json.error); setLoading(false); return }
@@ -38,9 +51,22 @@ export default function NewPatientPage() {
 
       <div style={{ background: '#fff', borderRadius: 14, padding: 32, border: '1px solid #e5e7eb' }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: '#111827', marginBottom: 6 }}>New Patient</h1>
-        <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 24 }}>After adding the patient, you'll paste the Gemini meeting doc next.</p>
+        <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 24 }}>After adding the patient, you&apos;ll paste the Gemini meeting doc next.</p>
 
         <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+              Patient ID (Clinicea)
+            </label>
+            <input
+              value={clinicPatientId}
+              onChange={e => setClinicPatientId(e.target.value)}
+              placeholder="e.g. CLP-0042"
+              style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 15, boxSizing: 'border-box' }}
+            />
+            <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 5 }}>Matches this patient&apos;s ID in Clinicea — prevents confusing two patients with the same name.</p>
+          </div>
+
           <div style={{ marginBottom: 16 }}>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
               Patient Name <span style={{ color: '#ef4444' }}>*</span>
@@ -51,7 +77,7 @@ export default function NewPatientPage() {
               required
               autoFocus
               placeholder="e.g. Diksha Jain"
-              style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 15 }}
+              style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 15, boxSizing: 'border-box' }}
             />
           </div>
 
@@ -68,13 +94,12 @@ export default function NewPatientPage() {
           </div>
 
           <div style={{ marginBottom: 24 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Assigned Nutritionist</label>
-            <input
-              value={nutritionist}
-              onChange={e => setNutritionist(e.target.value)}
-              placeholder="e.g. Bhavana"
-              style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14 }}
-            />
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Assigned Coach</label>
+            <select value={nutritionistId} onChange={e => setNutritionistId(e.target.value)}
+              style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, boxSizing: 'border-box', background: '#fff' }}>
+              <option value="">— Select a coach —</option>
+              {coaches.map((c) => <option key={c.id} value={c.id}>{c.full_name}</option>)}
+            </select>
           </div>
 
           {error && <div style={{ background: '#fef2f2', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13, marginBottom: 16 }}>{error}</div>}
@@ -88,7 +113,7 @@ export default function NewPatientPage() {
 
       {/* Flow indicator */}
       <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-        {['Add Patient', 'Paste Gemini Doc', 'Q&A', 'Generate Roadmap'].map((step, i) => (
+        {['Add Patient', 'Paste Gemini Doc', 'Q&A', 'Generate PDF Guide'].map((step, i) => (
           <div key={step} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <div style={{ width: 22, height: 22, borderRadius: '50%', background: i === 0 ? '#538A22' : '#e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: i === 0 ? '#fff' : '#9ca3af' }}>{i + 1}</div>

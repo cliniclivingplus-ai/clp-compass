@@ -23,9 +23,10 @@ export async function POST(req: NextRequest) {
     const { session_id, patient_id, duration_months = 1 } = await req.json()
     if (!session_id || !patient_id) return NextResponse.json({ error: 'Missing params' }, { status: 400 })
 
-    const [{ data: session }, { data: patient }] = await Promise.all([
+    const [{ data: session }, { data: patient }, { data: reports }] = await Promise.all([
       supabaseAdmin.from('sessions').select('*').eq('id', session_id).single(),
       supabaseAdmin.from('patients').select('*').eq('id', patient_id).single(),
+      supabaseAdmin.from('patient_reports').select('report_type, patient_summary').eq('patient_id', patient_id).eq('status', 'ready'),
     ])
     if (!session || !patient) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -34,6 +35,9 @@ export async function POST(req: NextRequest) {
 
     const fullQA = qaPairs.map((qa, i) => `Q${i+1}: ${qa.question}\nAnswer: ${qa.answer}`).join('\n\n')
     const geminiSnippet = session.gemini_doc_raw?.slice(0, 800) ?? ''
+    const reportsBlock = (reports ?? []).length
+      ? (reports ?? []).map((r) => `${r.report_type}:\n${r.patient_summary}`).join('\n\n')
+      : ''
 
     // ── KB Search ────────────────────────────────────────────
     let kbContext = ''
@@ -159,7 +163,7 @@ ${geminiSnippet}
 
 Q&A:
 ${fullQA || 'None'}
-
+${reportsBlock ? `\nLab/diagnostic reports on file:\n${reportsBlock}\n` : ''}
 Extract every specific fact mentioned:
 - Exact symptoms (with duration, frequency, severity)
 - Exact diet details (what they eat, when, how much)
@@ -168,6 +172,7 @@ Extract every specific fact mentioned:
 - Exact measurements (weight, height, lab values)
 - Specific habits (good and bad)
 - What has worked or failed before
+${reportsBlock ? '- Exact lab/report findings (values, whether in/out of normal range)' : ''}
 
 Return as a bullet list. Every point must be specific and sourced from the data above. NO generalisations.` }
       ],
@@ -253,7 +258,12 @@ Write 4 clinical notes:
 Each starts with •. Specific to this patient. No generic statements.` }
       ],
       temperature: 0.2,
-      max_tokens: 400,
+      max_tokens: 800, // was 400 — four multi-bullet sections (biomarkers,
+      // diet protocol, supplements, red flags) reliably ran out of budget
+      // mid-sentence on the last section (observed: "Red flags" cut off at
+      // "Monitor Kalika" with nothing after it). This is now patient-facing
+      // (Supplements + When-to-reach-us PDF pages), so a truncated bullet
+      // isn't just an internal-notes annoyance anymore.
     })
     const nutritionist_guidelines = clinicalRes.choices[0]?.message?.content?.trim() ?? ''
 
@@ -305,7 +315,13 @@ RULES FOR ACTIONS:
 Exactly ${totalWeeks} items. Each week must address a different physiological system or mechanism. Progression: weeks 1-2 eliminate triggers, weeks 3-4 repair damage, weeks 5+ rebuild and optimise.\`` }
       ],
       temperature: 0.3,
-      max_tokens: 2500,
+      // Was a fixed 2500 regardless of totalWeeks — fine at 4 weeks (1 month,
+      // the case that was always tested), but each week's JSON object (3-
+      // sentence cause + 3 detailed actions + milestone) runs well over 300
+      // tokens, so anything past ~2-3 months ran out of budget mid-object and
+      // produced unparseable, truncated JSON ("Weekly parse failed"). Scale
+      // with totalWeeks, capped below llama-3.3-70b-versatile's ~8192 output limit.
+      max_tokens: Math.min(7500, Math.max(2500, totalWeeks * 300)),
     })
 
     const weeklyRaw = weeklyRes.choices[0]?.message?.content ?? ''
