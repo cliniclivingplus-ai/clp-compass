@@ -67,6 +67,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             >
               Patients
             </Link>
+            <Link
+              href="/coaches"
+              style={{
+                fontSize: 13.5,
+                fontWeight: 600,
+                color: '#2F5214',
+                textDecoration: 'none',
+                padding: '8px 14px',
+                borderRadius: 8,
+              }}
+            >
+              Coaches
+            </Link>
           </nav>
         </header>
 

@@ -224,7 +224,9 @@ something correctly, don't say it again in different words.
 Return STRICT JSON only, no markdown:
 {
   "summary": "3-4 sentence clinical summary of ${patientName}'s main concerns and relevant findings, third person",
-  "checklist": ["4 to 6 of ${patientName}'s concerns from the transcript, ordered by CLINICAL URGENCY/SEVERITY — most pressing first (e.g. an acute or worsening symptom before a general lifestyle habit). Each one phrased as a specific coaching discussion point, not a question to the patient."]
+  "checklist": ["4 to 6 of ${patientName}'s concerns from the transcript, ordered by CLINICAL URGENCY/SEVERITY — most pressing first (e.g. an acute or worsening symptom before a general lifestyle habit). Each one phrased as a specific coaching discussion point, not a question to the patient."],
+  "goal": "ONE motivating, forward-looking sentence for the cover of ${patientName}'s wellness guide — written as the OUTCOME they're working toward, not a restatement of their problem. NEVER phrase it as the diagnosis/complaint (e.g. NOT 'Difficulty losing weight and gut inflammation'). Instead say what life looks like once this is handled (e.g. 'Lose the extra weight for good and feel steady all day, every day'). Plain language, no clinical terms, under 15 words.",
+  "coach_quote": "ONE short, warm sentence in the COACH'S own voice, speaking directly to ${patientName} — built around ONE concrete, specific, non-clinical detail they actually mentioned in the transcript (a food ritual, a person, a routine, a small preference). Format like: '[First name] — I remember what you said about ___. That's exactly...'. This must be grounded in something explicitly said in the transcript — if nothing sufficiently specific and personal was mentioned, return an empty string. Never invent a detail that wasn't in the transcript."
 }`,
             },
             { role: 'user' as const, content: `Transcript:\n\n${transcript}${geminiSummaryBlock}` },
@@ -241,7 +243,7 @@ Return STRICT JSON only, no markdown:
           if (!raw.trim()) console.log(`[qa-chat debug] summary empty content (attempt ${attempt + 1}/2), finish_reason:`, completion.choices[0]?.finish_reason);
         }
         raw = raw || '{}';
-        let parsed: { summary?: string; checklist?: string[] } = {};
+        let parsed: { summary?: string; checklist?: string[]; goal?: string; coach_quote?: string } = {};
         // Robustly pull JSON out even if the model wraps it in prose or ``` fences.
         try {
           const clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -252,6 +254,8 @@ Return STRICT JSON only, no markdown:
         }
         // Guarantee clean shapes — never return raw JSON as the summary text.
         let summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
+        const goal = typeof parsed.goal === 'string' ? parsed.goal.trim() : '';
+        const coachQuote = typeof parsed.coach_quote === 'string' ? parsed.coach_quote.trim() : '';
         const checklistItems = Array.isArray(parsed.checklist)
           ? parsed.checklist.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())
           : [];
@@ -262,7 +266,7 @@ Return STRICT JSON only, no markdown:
         if (!summary && !checklist.length) {
           return Response.json({ error: 'The case summary could not be parsed. Tap retry to regenerate.' });
         }
-        return Response.json({ summary, checklist });
+        return Response.json({ summary, checklist, goal, coachQuote });
       } catch (err) { return friendlyError(err); }
     }
 

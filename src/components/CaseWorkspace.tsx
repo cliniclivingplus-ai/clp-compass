@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { Loader2, Sparkles, Send, ClipboardCheck, MessageSquare, AlertCircle, RotateCw, FileText, ChevronDown, ChevronUp, BookOpen, Circle, CheckCircle2, Clock } from 'lucide-react'
+import { Loader2, Sparkles, Send, MessageSquare, AlertCircle, RotateCw, FileText, ChevronDown, ChevronUp, BookOpen, Circle, CheckCircle2, Clock } from 'lucide-react'
 
 const C = {
   green: '#538A22', greenDeep: '#2F5214', greenSoft: '#F2F9EC', greenBorder: '#C8E9A8',
@@ -23,6 +23,8 @@ export default function CaseWorkspace({
   sessionId, patientId, patientName = 'the patient', transcript = '', geminiSummary = '',
 }: { sessionId: string; patientId?: string; patientName?: string; transcript?: string; geminiSummary?: string }) {
   const [summary, setSummary] = useState('')
+  const [goal, setGoal] = useState('')
+  const [coachQuote, setCoachQuote] = useState('')
   const [checklist, setChecklist] = useState<ChecklistItem[]>([])
   const [summaryError, setSummaryError] = useState('')
   const [summaryLoading, setSummaryLoading] = useState(true)
@@ -32,15 +34,12 @@ export default function CaseWorkspace({
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
-  const [instructions, setInstructions] = useState('')
-  const [drafting, setDrafting] = useState(false)
-  const [saved, setSaved] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   function persistChecklist(list: ChecklistItem[]) {
     fetch(`/api/sessions/${sessionId}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ case_summary: { summary, checklist: list } }),
+      body: JSON.stringify({ case_summary: { summary, checklist: list, goal, coach_quote: coachQuote } }),
     }).catch(() => {})
   }
 
@@ -56,10 +55,10 @@ export default function CaseWorkspace({
       if (!j.summary && !(Array.isArray(j.checklist) && j.checklist.length)) {
         setSummaryError('The summary came back empty — tap retry, or just start the discussion below.'); return
       }
-      setSummary(j.summary || ''); setChecklist(Array.isArray(j.checklist) ? j.checklist : [])
+      setSummary(j.summary || ''); setChecklist(Array.isArray(j.checklist) ? j.checklist : []); setGoal(j.goal || ''); setCoachQuote(j.coachQuote || '')
       fetch(`/api/sessions/${sessionId}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ case_summary: { summary: j.summary, checklist: j.checklist } }),
+        body: JSON.stringify({ case_summary: { summary: j.summary, checklist: j.checklist, goal: j.goal, coach_quote: j.coachQuote } }),
       }).catch(() => {})
     } catch { setSummaryError('Could not reach the co-pilot. Check your connection and retry.') }
     finally { setSummaryLoading(false) }
@@ -68,10 +67,9 @@ export default function CaseWorkspace({
   useEffect(() => {
     let alive = true
     ;(async () => {
-      let existing: Msg[] = []; let instr = ''; let cached: any = null; let name = patientName
+      let existing: Msg[] = []; let cached: any = null; let name = patientName
       try {
         const s = await (await fetch(`/api/sessions/${sessionId}`)).json()
-        instr = s?.roadmap_instructions || ''
         cached = s?.case_summary || null
         if (Array.isArray(s?.qa_pairs)) {
           for (const p of s.qa_pairs) {
@@ -86,10 +84,10 @@ export default function CaseWorkspace({
         }
       } catch {}
       if (!alive) return
-      setInstructions(instr); setMessages(existing)
+      setMessages(existing)
 
       if (cached?.summary || (cached?.checklist?.length)) {
-        setSummary(cached.summary || ''); setChecklist(cached.checklist || []); setSummaryLoading(false)
+        setSummary(cached.summary || ''); setChecklist(cached.checklist || []); setGoal(cached.goal || ''); setCoachQuote(cached.coach_quote || ''); setSummaryLoading(false)
       } else if (transcript) {
         generateSummary(name)
       } else {
@@ -111,11 +109,11 @@ export default function CaseWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [summaryLoading, checklist, messages.length])
 
-  async function persist(next: Msg[], instr?: string) {
+  async function persist(next: Msg[]) {
     try {
       await fetch(`/api/sessions/${sessionId}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qa_pairs: pairFor(next), ...(instr !== undefined ? { roadmap_instructions: instr } : {}) }),
+        body: JSON.stringify({ qa_pairs: pairFor(next) }),
       })
     } catch {}
   }
@@ -149,19 +147,6 @@ export default function CaseWorkspace({
     } catch { setMessages([...next, { role: 'assistant', content: 'Connection issue — try again.' }]) }
     finally { setThinking(false) }
   }
-  async function draftInstructions() {
-    if (messages.length === 0 || drafting) return
-    setDrafting(true)
-    try {
-      const r = await fetch('/api/qa-chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'draft', patientName, transcript, messages }),
-      })
-      const j = await r.json(); if (j.instructions) setInstructions(j.instructions)
-    } finally { setDrafting(false) }
-  }
-  async function saveInstructions() { await persist(messages, instructions); setSaved(true); setTimeout(() => setSaved(false), 2000) }
-
   const cardBase = { background: C.card, borderRadius: 16, border: `1px solid ${C.line}`, boxShadow: '0 1px 3px rgba(26,36,23,0.04)' }
 
   return (
@@ -189,7 +174,21 @@ export default function CaseWorkspace({
             )}
           </div>
         ) : (
-          <p style={{ fontSize: 14, color: C.ink, margin: 0, lineHeight: 1.6 }}>{summary}</p>
+          <>
+            <p style={{ fontSize: 14, color: C.ink, margin: 0, lineHeight: 1.6 }}>{summary}</p>
+            {goal && (
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: C.greenDeep, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Guide goal</span>
+                <span style={{ fontSize: 13, color: C.ink, fontStyle: 'italic' }}>{goal}</span>
+              </div>
+            )}
+            {coachQuote && (
+              <div style={{ marginTop: 6, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: C.greenDeep, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Coach quote</span>
+                <span style={{ fontSize: 13, color: C.ink, fontStyle: 'italic' }}>&ldquo;{coachQuote}&rdquo;</span>
+              </div>
+            )}
+          </>
         )}
 
         {transcript && (
@@ -336,23 +335,6 @@ export default function CaseWorkspace({
           <button onClick={() => send(input)} disabled={thinking || !input.trim()}
             style={{ padding: '0 16px', borderRadius: 11, border: 'none', background: input.trim() ? C.green : '#C9D4BE', color: '#fff', cursor: input.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center' }}>
             <Send size={16} />
-          </button>
-        </div>
-
-        <div style={{ padding: '16px 18px', borderTop: `1px solid ${C.line}`, background: '#FCFBF7' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.greenDeep, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Roadmap instructions</div>
-            <button onClick={draftInstructions} disabled={drafting || messages.length === 0}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: messages.length ? C.green : C.faint, background: 'none', border: `1px solid ${messages.length ? C.greenBorder : C.line}`, borderRadius: 8, padding: '5px 10px', cursor: messages.length ? 'pointer' : 'default' }}>
-              {drafting ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Sparkles size={12} />} Draft from discussion
-            </button>
-          </div>
-          <textarea value={instructions} onChange={e => setInstructions(e.target.value)} rows={4}
-            placeholder="Tell the roadmap how it should look — focus areas, priorities, what to emphasise. Or click 'Draft from discussion' to fill this from your chat, then edit."
-            style={{ width: '100%', padding: '11px 13px', borderRadius: 11, border: `1px solid ${C.line}`, fontSize: 13, color: C.ink, fontFamily: 'inherit', lineHeight: 1.5, resize: 'vertical', boxSizing: 'border-box' }} />
-          <button onClick={saveInstructions}
-            style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 9, border: 'none', background: saved ? C.greenDeep : C.green, color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
-            <ClipboardCheck size={13} /> {saved ? 'Saved — ready for roadmap' : 'Save instructions'}
           </button>
         </div>
       </div>

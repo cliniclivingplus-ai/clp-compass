@@ -1,5 +1,6 @@
 export type Patient = {
   id: string
+  clinic_patient_id: string | null
   full_name: string
   email: string | null
   phone: string | null
@@ -8,6 +9,7 @@ export type Patient = {
   medical_history: string | null
   primary_concern: string | null
   assigned_nutritionist: string | null
+  nutritionist_id: string | null
   created_at: string
 }
 

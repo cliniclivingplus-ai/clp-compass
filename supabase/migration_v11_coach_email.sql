@@ -1,0 +1,1 @@
+ALTER TABLE nutritionists ADD COLUMN IF NOT EXISTS email TEXT;
