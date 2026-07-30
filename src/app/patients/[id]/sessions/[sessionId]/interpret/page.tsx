@@ -32,6 +32,7 @@ const DURATION_OPTIONS = [
   { label: '2 Months', months: 2 },
   { label: '3 Months', months: 3 },
   { label: '6 Months', months: 6 },
+  { label: '12 Months', months: 12 },
 ]
 
 export default function InterpretPage() {
