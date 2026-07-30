@@ -5,7 +5,9 @@ import { supabaseAdmin } from '@/lib/supabase'
 import Groq from 'groq-sdk'
 import { embedText } from '@/lib/embeddings'
 
-export const maxDuration = 60
+// A 12-month plan now runs up to 4 sequential weekly-schedule chunk calls
+// (on top of the 4 earlier steps), which can exceed the old 60s budget.
+export const maxDuration = 180
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
 
 function extractJSON(text: string): unknown {
@@ -272,20 +274,49 @@ Each starts with •. Specific to this patient. No generic statements.` }
     const totalWeeks = duration_months < 1
       ? Math.round(duration_months * 4)
       : duration_months * 4
-    const weeklyRes = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: 'Return only a valid JSON array. No markdown. Write cause and actions directly to the patient using their specific facts. Never write generic health advice.' },
-        { role: 'user', content: `PATIENT FACTS (the only source of truth — use these specific details):
+
+    // A single completion can't reliably produce a full 12-month (48-week)
+    // schedule — each week's JSON object runs well over 300 tokens, so 48
+    // weeks needs ~14,400 tokens against the model's ~8,192 output ceiling.
+    // Generating in ~12-week (one quarter) chunks keeps every individual
+    // call well inside that limit regardless of total duration, and each
+    // chunk is told which phase of the overall arc it represents so the
+    // progression (eliminate → repair → rebuild) still holds across chunks.
+    const WEEKS_PER_CHUNK = 12
+    const chunkRanges: { startWeek: number; endWeek: number }[] = []
+    for (let start = 1; start <= totalWeeks; start += WEEKS_PER_CHUNK) {
+      chunkRanges.push({ startWeek: start, endWeek: Math.min(start + WEEKS_PER_CHUNK - 1, totalWeeks) })
+    }
+
+    function phaseGuidance(startWeek: number, endWeek: number): string {
+      const third = totalWeeks / 3
+      if (endWeek <= third) return 'This is the EARLY phase — eliminate triggers and address root causes from the facts.'
+      if (startWeek > third * 2) return 'This is the LATE phase — optimise and sustain the improvements already built.'
+      return 'This is the MID phase — build on earlier improvements and repair damage.'
+    }
+
+    async function generateWeeklyChunk(startWeek: number, endWeek: number): Promise<unknown[]> {
+      const weeksInChunk = endWeek - startWeek + 1
+      const res = await groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: 'Return only a valid JSON array. No markdown. Write cause and actions directly to the patient using their specific facts. Never write generic health advice.' },
+          { role: 'user', content: `PATIENT FACTS (the only source of truth — use these specific details):
 ${patientFacts}
 
 KB CLINICAL KNOWLEDGE:
 ${kbContext || 'Use expertise.'}
 
 NUTRITIONIST INSTRUCTIONS:
-${roadmapInstructions || `Weeks 1-${Math.ceil(totalWeeks/3)}: address root causes from facts. Weeks ${Math.ceil(totalWeeks/3)+1}-${Math.ceil(totalWeeks*2/3)}: build on improvements. Weeks ${Math.ceil(totalWeeks*2/3)+1}-${totalWeeks}: optimise and sustain.`}
+${roadmapInstructions || 'Address root causes from facts, then build on improvements, then optimise and sustain.'}
 
-Create exactly ${totalWeeks} weekly plans.
+This is part of a longer ${totalWeeks}-week plan, split into chunks. This chunk covers ONLY weeks ${startWeek} to ${endWeek} — ${weeksInChunk} items total. ${phaseGuidance(startWeek, endWeek)}
+
+WEEK NUMBERING (critical — get this exact):
+- The FIRST item's "week_number" MUST be exactly ${startWeek} (not 0, not 1 — exactly ${startWeek}).
+- Each following item increments by exactly 1.
+- The LAST item's "week_number" MUST be exactly ${endWeek}.
+${weeksInChunk >= 2 ? `- Example: with ${weeksInChunk} items starting at ${startWeek}, the week_number sequence is ${startWeek}, ${startWeek + 1}, ${startWeek + 2}${weeksInChunk > 3 ? ', … ' + endWeek : ''}.` : ''}
 
 RULES FOR CAUSE:
 - Explain the BIOCHEMICAL MECHANISM — what is actually happening in the body at a cellular/hormonal level
@@ -301,7 +332,7 @@ RULES FOR ACTIONS:
 - Actions should NOT suggest "consult a doctor" or "consult a nutritionist" — she is already at CLP
 
 [{
-  "week_number": 1,
+  "week_number": ${startWeek},
   "focus_theme": "Specific clinical theme",
   "cause": "3 sentences explaining the exact biochemical mechanism happening in their body. Scientific, specific to their condition and facts. Direct to patient.",
   "actions": [
@@ -312,26 +343,34 @@ RULES FOR ACTIONS:
   "milestone": "By end of this week, if you follow all actions: [1-2 specific, measurable changes the patient will notice — e.g. bloating reduces, energy improves by afternoon, bowel movement becomes regular]. Be specific and realistic."
 }]
 
-Exactly ${totalWeeks} items. Each week must address a different physiological system or mechanism. Progression: weeks 1-2 eliminate triggers, weeks 3-4 repair damage, weeks 5+ rebuild and optimise.\`` }
-      ],
-      temperature: 0.3,
-      // Was a fixed 2500 regardless of totalWeeks — fine at 4 weeks (1 month,
-      // the case that was always tested), but each week's JSON object (3-
-      // sentence cause + 3 detailed actions + milestone) runs well over 300
-      // tokens, so anything past ~2-3 months ran out of budget mid-object and
-      // produced unparseable, truncated JSON ("Weekly parse failed"). Scale
-      // with totalWeeks, capped below llama-3.3-70b-versatile's ~8192 output limit.
-      max_tokens: Math.min(7500, Math.max(2500, totalWeeks * 300)),
-    })
+Exactly ${weeksInChunk} items, week_number ${startWeek} through ${endWeek}. Each week must address a different physiological system or mechanism.` }
+        ],
+        temperature: 0.3,
+        max_tokens: Math.min(4000, weeksInChunk * 320 + 200),
+      })
+      const raw = res.choices[0]?.message?.content ?? ''
+      const parsed = extractJSON(raw)
+      if (!Array.isArray(parsed)) throw new Error(`Not an array (weeks ${startWeek}-${endWeek}). Raw: ${raw.slice(0, 200)}`)
+      // Don't trust the model's own week_number — observed it start a chunk
+      // at 0 instead of ${startWeek} despite explicit instructions. Position
+      // in the array is unambiguous, so renumber sequentially regardless of
+      // what the model wrote.
+      return parsed.slice(0, weeksInChunk).map((week, i) => ({ ...(week as Record<string, unknown>), week_number: startWeek + i }))
+    }
 
-    const weeklyRaw = weeklyRes.choices[0]?.message?.content ?? ''
     let weeklySchedule: unknown[]
     try {
-      weeklySchedule = extractJSON(weeklyRaw) as unknown[]
-      if (!Array.isArray(weeklySchedule)) throw new Error('Not an array')
+      // Sequential, not parallel — Groq's TPM budget is shared across the
+      // whole org, and this session has repeatedly hit that limit under
+      // concurrent load; one chunk at a time stays well inside it.
+      weeklySchedule = []
+      for (const { startWeek, endWeek } of chunkRanges) {
+        const chunk = await generateWeeklyChunk(startWeek, endWeek)
+        weeklySchedule.push(...chunk)
+      }
       console.log('Weeks:', weeklySchedule.length)
-    } catch {
-      return NextResponse.json({ error: `Weekly parse failed. Raw: ${weeklyRaw.slice(0, 300)}` }, { status: 500 })
+    } catch (err) {
+      return NextResponse.json({ error: `Weekly parse failed. ${err instanceof Error ? err.message : String(err)}` }, { status: 500 })
     }
 
     // ── Save ─────────────────────────────────────────────────

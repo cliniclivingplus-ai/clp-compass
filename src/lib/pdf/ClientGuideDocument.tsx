@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { Fragment, type ReactElement } from 'react'
 import { Document, View, Text, Image, StyleSheet, Svg, Rect, Circle, Path } from '@react-pdf/renderer'
 import { colors, font } from './theme'
 import { PageShell, shared } from './PageShell'
@@ -278,10 +278,43 @@ function howToUsePages(data: GuideData): ReactElement[] {
   ]
 }
 
+const quarterCardStyles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
+  card: {
+    flex: 1, borderWidth: 1, borderColor: colors.rule, borderRadius: 8,
+    paddingVertical: 12, alignItems: 'center', backgroundColor: colors.paper,
+  },
+  cardDone: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+  num: { fontFamily: font.display, fontSize: 20, color: colors.accent },
+  numMuted: { color: colors.muted },
+  label: { fontSize: 7.5, letterSpacing: 0.6, color: colors.muted, marginTop: 2 },
+  goal: { fontSize: 7, color: colors.inkSoft, marginTop: 2, textAlign: 'center', paddingHorizontal: 4 },
+  arrow: { fontSize: 12, color: colors.muted, marginHorizontal: 6 },
+})
+
+function QuarterCardRow({ quarters }: { quarters: ReturnType<typeof reshapeRoadmapIntoQuarters> }) {
+  return (
+    <View style={quarterCardStyles.row}>
+      {quarters.map((q, i) => (
+        <Fragment key={q.label}>
+          <View style={{ ...quarterCardStyles.card, ...(q.planned ? quarterCardStyles.cardDone : {}) }}>
+            <Text style={{ ...quarterCardStyles.num, ...(q.planned ? {} : quarterCardStyles.numMuted) }}>{String(i + 1).padStart(2, '0')}</Text>
+            <Text style={quarterCardStyles.label}>{q.label.toUpperCase()}</Text>
+            <Text style={quarterCardStyles.goal}>{q.planned ? q.macroGoal.slice(0, 40) : 'Not yet planned'}</Text>
+          </View>
+          {i < quarters.length - 1 && <Text style={quarterCardStyles.arrow}>→</Text>}
+        </Fragment>
+      ))}
+    </View>
+  )
+}
+
 function roadmapPages(data: GuideData): ReactElement[] {
   const quarters = reshapeRoadmapIntoQuarters(data.roadmap.weekly_schedule)
+  const biomarkers = parseNutritionistGuidelines(data.roadmap.nutritionist_guidelines).biomarkers
   const quarterBlock = (idx: number) => {
     const q = quarters[idx]
+    const keyMetric = biomarkers.length > 0 ? biomarkers[idx % biomarkers.length] : 'Rechecked with your coach at the end of this quarter.'
     return (
       <View key={q.label} style={{ marginBottom: 16 }}>
         <Text style={shared.section}>{q.label} · {q.monthRange}</Text>
@@ -292,6 +325,8 @@ function roadmapPages(data: GuideData): ReactElement[] {
             <>
               <Text style={shared.boxLabel}>MICRO GOALS</Text>
               {q.microGoals.map((g, i) => <Text key={i} style={shared.p}>· {g}</Text>)}
+              <Text style={shared.boxLabel}>KEY METRIC</Text>
+              <Text style={shared.p}>{keyMetric}</Text>
               <Text style={shared.boxLabel}>SUCCESS LOOKS LIKE</Text>
               <Text style={shared.p}>{q.successLooksLike}</Text>
             </>
@@ -303,12 +338,16 @@ function roadmapPages(data: GuideData): ReactElement[] {
   return [
     <PageShell key="roadmap1" eyebrow={"YOUR 12-MONTH\nROADMAP"}>
       <Text style={shared.title}>Your 12-month roadmap</Text>
+      <QuarterCardRow quarters={quarters} />
       {quarterBlock(0)}
       {quarterBlock(1)}
     </PageShell>,
     <PageShell key="roadmap2" eyebrow={"YOUR 12-MONTH ROADMAP ·\nCONTINUED"}>
       {quarterBlock(2)}
       {quarterBlock(3)}
+      <View style={{ ...shared.box, minHeight: 90, alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>
+        <Text style={{ fontSize: 9, fontStyle: 'italic', color: colors.accent }}>space for your coach&apos;s notes</Text>
+      </View>
     </PageShell>,
   ]
 }
