@@ -16,7 +16,6 @@ export default function NewSessionPage() {
   const params = useParams()
   const patientId = params.id as string
 
-  const [sessionType, setSessionType] = useState<'first-meet' | 'follow-up' | 'review'>('first-meet')
   const [geminiDoc, setGeminiDoc] = useState('')
   const [geminiSummary, setGeminiSummary] = useState('')
   const [preNotes, setPreNotes] = useState('')
@@ -36,7 +35,6 @@ export default function NewSessionPage() {
       .then(data => {
         const count = Array.isArray(data) ? data.length : 0
         setSessionCount(count)
-        if (count > 0) setSessionType('follow-up')
       })
       .catch(() => {})
   }, [patientId])
@@ -54,7 +52,6 @@ export default function NewSessionPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           patient_id: patientId,
-          session_type: sessionType,
           gemini_doc_raw: geminiDoc || null,
           gemini_summary_raw: geminiSummary || null,
           pre_meeting_notes: preNotes || null,
@@ -98,19 +95,6 @@ export default function NewSessionPage() {
       </div>
 
       <form onSubmit={handleSubmit} style={{ background: C.card, borderRadius: 16, padding: 24, border: `1px solid ${C.line}`, boxShadow: '0 1px 3px rgba(26,36,23,0.04)' }}>
-
-        {/* Session type */}
-        <div style={{ marginBottom: 22 }}>
-          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: C.greenDeep, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Session type</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {(['first-meet', 'follow-up', 'review'] as const).map(t => (
-              <button key={t} type="button" onClick={() => setSessionType(t)}
-                style={{ flex: 1, padding: '10px 4px', borderRadius: 10, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', border: '1px solid', borderColor: sessionType === t ? C.green : C.line, background: sessionType === t ? C.greenSoft : C.card, color: sessionType === t ? C.greenDeep : C.muted, textTransform: 'capitalize', transition: 'all 0.15s' }}>
-                {t.replace('-', ' ')}
-              </button>
-            ))}
-          </div>
-        </div>
 
         {/* Transcript — primary: Drive import */}
         <div style={{ marginBottom: 22 }}>

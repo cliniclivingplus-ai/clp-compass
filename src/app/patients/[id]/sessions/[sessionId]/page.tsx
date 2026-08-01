@@ -25,8 +25,8 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#111827', textTransform: 'capitalize' }}>
-            {session.session_type.replace('-', ' ')} Session
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#111827' }}>
+            Session
           </h1>
           <p style={{ color: '#6b7280', fontSize: 13, marginTop: 3 }}>
             {new Date(session.session_date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
@@ -34,7 +34,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
         </div>
         {hasContent && (
           <Link href={`/patients/${id}/sessions/${sessionId}/interpret`} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#538A22', color: '#fff', padding: '10px 18px', borderRadius: 8, textDecoration: 'none', fontWeight: 600, fontSize: 14 }}>
-            <Wand2 size={15} /> Generate PDF Guide
+            <Wand2 size={15} /> Generate Dashboard
           </Link>
         )}
       </div>

@@ -1,13 +1,22 @@
 import { Fragment, type ReactElement } from 'react'
-import { Document, View, Text, Image, StyleSheet, Svg, Rect, Circle, Path } from '@react-pdf/renderer'
+import { Document, View, Text, Image, StyleSheet, Svg, Rect, Circle, Path, Link } from '@react-pdf/renderer'
 import { colors, font } from './theme'
 import { PageShell, shared } from './PageShell'
-import { reshapeRoadmapIntoQuarters, type WeeklyPlan } from './reshapeRoadmap'
+import { reshapeRoadmapIntoQuarters, reshapeRoadmapIntoMonths, type WeeklyPlan } from './reshapeRoadmap'
 import { parseNutritionistGuidelines } from './parseNutritionistGuidelines'
+import { matchGuideImageDistinct, type GuideImage } from './matchGuideImage'
+import { selectRecipesForPatient, type BankRecipe } from './matchRecipes'
+import { splitRecipeLines } from '../recipeText'
+import { cleanSourceTitle, sourceSearchUrl } from '../sourceLinks'
 
 export type KbSource = { title: string; source_type: string; chunk_preview: string }
 
+// The 4 recipe slots shown once per week in the roadmap's week view —
+// exactly the recipe bank's own meal_type categories, no separate mapping.
+export type DayMealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack'
+
 export type Coach = {
+  id: string
   full_name: string
   designation: string | null
   bio: string | null
@@ -34,29 +43,33 @@ export type GuideData = {
   goalLabel: string // short label for the cover, e.g. "Steady energy, no more 4pm crashes"
   whyReflection: string // "Your why" — mirrors the patient's own reflection back to them
   coachQuote: string // personalized callback line, grounded in a real transcript detail — empty if none found
+  imageBank: GuideImage[] // coach-uploaded, tag-matched into sections that genuinely fit — never forced
+  recipeBank: BankRecipe[] // coach-built recipes, tag/keyword-matched to this patient's real concern & diet notes
+  manualRecipes: Partial<Record<DayMealSlot, string>> // coach's explicit recipe-id override per slot, used when auto-detection finds nothing (or to override it)
 }
 
 const cover = StyleSheet.create({
   wrap: { flexGrow: 1, alignItems: 'center', justifyContent: 'center' },
   logo: {
-    width: 64, height: 64, borderRadius: 32, backgroundColor: colors.accent,
-    alignItems: 'center', justifyContent: 'center', marginBottom: 14,
+    width: 68, height: 68, borderRadius: 34, backgroundColor: colors.accent,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 18,
   },
-  logoText: { color: colors.paper, fontFamily: font.display, fontSize: 16 },
-  brand: { fontSize: 10, letterSpacing: 3, color: colors.muted, marginBottom: 40 },
-  title: { fontFamily: font.display, fontSize: 30, color: colors.ink, marginBottom: 16 },
-  client: { fontSize: 13, color: colors.ink, marginBottom: 4 },
-  goal: { fontSize: 10, letterSpacing: 1, color: colors.muted },
+  logoText: { color: colors.paper, fontFamily: font.displayBold, fontSize: 17, letterSpacing: 0.5 },
+  brand: { fontSize: 10, fontFamily: font.bodySemiBold, letterSpacing: 3.5, color: colors.muted, marginBottom: 44 },
+  title: { fontFamily: font.displayBold, fontSize: 32, color: colors.ink, marginBottom: 20, textAlign: 'center' },
+  rule: { width: 36, height: 1.5, backgroundColor: colors.accent, marginBottom: 20 },
+  client: { fontSize: 14, fontFamily: font.bodyMedium, color: colors.ink, marginBottom: 22 },
+  goal: { fontSize: 9.5, fontFamily: font.bodySemiBold, letterSpacing: 1.2, color: colors.muted, textAlign: 'center', maxWidth: 320, lineHeight: 1.6 },
 })
 
 const toc = StyleSheet.create({
   row: {
-    flexDirection: 'row', justifyContent: 'space-between',
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
     borderBottomWidth: 0.5, borderBottomColor: colors.rule,
-    borderBottomStyle: 'dashed', paddingVertical: 8,
+    borderBottomStyle: 'dashed', paddingVertical: 9,
   },
-  label: { fontSize: 10.5, color: colors.ink },
-  num: { fontSize: 10.5, color: colors.inkSoft },
+  label: { fontSize: 10.5, fontFamily: font.bodyMedium, color: colors.ink },
+  num: { fontSize: 10.5, fontFamily: font.displayBold, color: colors.accent },
 })
 
 const grid = StyleSheet.create({
@@ -71,6 +84,8 @@ const grid = StyleSheet.create({
     borderBottomWidth: 1.5, borderBottomColor: colors.accent, paddingBottom: 4, marginBottom: 6,
   },
   colItem: { fontSize: 8.5, color: colors.ink, paddingVertical: 3, borderBottomWidth: 0.5, borderBottomColor: colors.rule },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 3, borderBottomWidth: 0.5, borderBottomColor: colors.rule },
+  checkText: { fontSize: 8.5, color: colors.ink },
 })
 
 const tableStyles = StyleSheet.create({
@@ -116,6 +131,7 @@ function parseBullets(text: string): string[] {
     .filter(Boolean)
 }
 
+
 // goalLabel is a complete, capitalized, period-terminated sentence (it's
 // also used standalone on the cover) — this strips the trailing period so
 // it reads correctly when spliced mid-sentence into the founder's note.
@@ -137,7 +153,7 @@ const signature = StyleSheet.create({
     borderWidth: 1, borderColor: colors.rule, alignItems: 'center', justifyContent: 'center',
   },
   photoLabel: { fontSize: 7, color: colors.muted, marginTop: 3 },
-  name: { fontFamily: 'Times-Italic', fontSize: 16, color: colors.ink },
+  name: { fontFamily: font.displayItalic, fontSize: 16, color: colors.ink },
   title: { fontSize: 8, letterSpacing: 1, color: colors.muted, marginTop: 2 },
 })
 
@@ -153,6 +169,17 @@ function PhotoPlaceholder() {
       </Svg>
       <Text style={signature.photoLabel}>photo</Text>
     </View>
+  )
+}
+
+// A drawn checkbox square, not the "☐" character — that glyph isn't in the
+// embedded font's coverage, so fontkit was substituting its .notdef glyph
+// (rendered as a stray "&"-looking mark) everywhere it appeared.
+function CheckboxSquare() {
+  return (
+    <Svg width={8} height={8} viewBox="0 0 8 8">
+      <Rect x="0.5" y="0.5" width="7" height="7" rx="1" stroke={colors.muted} strokeWidth={0.8} fill="none" />
+    </Svg>
   )
 }
 
@@ -213,7 +240,7 @@ const coachStyles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 20 },
   text: { flex: 1 },
   designation: { fontSize: 9, letterSpacing: 0.6, color: colors.muted, marginBottom: 14 },
-  quote: { fontSize: 11, fontFamily: 'Times-Italic', color: colors.accent, lineHeight: 1.5, marginBottom: 14 },
+  quote: { fontSize: 11, fontFamily: font.displayItalic, color: colors.accent, lineHeight: 1.5, marginBottom: 14 },
   photoBox: {
     width: 120, height: 110, borderRadius: 8, backgroundColor: colors.accentSoft,
     borderWidth: 1, borderColor: colors.rule, alignItems: 'center', justifyContent: 'center', flexShrink: 0,
@@ -311,53 +338,89 @@ function QuarterCardRow({ quarters }: { quarters: ReturnType<typeof reshapeRoadm
 
 function roadmapPages(data: GuideData): ReactElement[] {
   const quarters = reshapeRoadmapIntoQuarters(data.roadmap.weekly_schedule)
+  const months = reshapeRoadmapIntoMonths(data.roadmap.weekly_schedule)
   const biomarkers = parseNutritionistGuidelines(data.roadmap.nutritionist_guidelines).biomarkers
-  const quarterBlock = (idx: number) => {
-    const q = quarters[idx]
-    const keyMetric = biomarkers.length > 0 ? biomarkers[idx % biomarkers.length] : 'Rechecked with your coach at the end of this quarter.'
+  // One dedup set shared across every month in the whole roadmap section, so
+  // the same photo doesn't turn up on 12 different weeks in a row.
+  const usedFoodImages = new Set<string>()
+  const monthBlock = (m: ReturnType<typeof reshapeRoadmapIntoMonths>[number]) => {
+    const keyMetric = biomarkers.length > 0 ? biomarkers[(m.monthNumber - 1) % biomarkers.length] : 'Rechecked with your coach at the end of this month.'
+    const last = m.weeks[m.weeks.length - 1]
+    const macroGoal = last?.focus_theme || 'Not yet planned — will be scoped with your coach in a future cycle.'
+    const microGoals = m.weeks.flatMap((w) => w.actions ?? []).slice(0, 4)
+    const successLooksLike = last?.milestone || 'Rechecked with your coach at the end of this month.'
+    const weeksWithMenu = m.weeks.filter((w) => w.food_menu?.trim())
     return (
-      <View key={q.label} style={{ marginBottom: 16 }}>
-        <Text style={shared.section}>{q.label} · {q.monthRange}</Text>
-        <View style={{ ...shared.box, opacity: q.planned ? 1 : 0.75 }}>
+      // wrap={false}: keep the whole month card together as one block — never
+      // split the box border/background mid-bullet-list across a page boundary.
+      // If it doesn't fit in the remaining space, react-pdf moves the entire
+      // card to the next page instead of orphaning half of it.
+      <View key={m.monthNumber} style={{ marginBottom: 14 }} wrap={false}>
+        <Text style={shared.section}>{m.monthLabel} · Weeks {m.weekStart}–{m.weekEnd}</Text>
+        <View style={{ ...shared.box, opacity: m.planned ? 1 : 0.75 }}>
           <Text style={shared.boxLabel}>MACRO GOAL</Text>
-          <Text style={shared.p}>{q.macroGoal}</Text>
-          {q.planned && (
+          <Text style={shared.p}>{macroGoal}</Text>
+          {m.planned && (
             <>
               <Text style={shared.boxLabel}>MICRO GOALS</Text>
-              {q.microGoals.map((g, i) => <Text key={i} style={shared.p}>· {g}</Text>)}
+              {microGoals.map((g, i) => <Text key={i} style={shared.p}>· {g}</Text>)}
               <Text style={shared.boxLabel}>KEY METRIC</Text>
               <Text style={shared.p}>{keyMetric}</Text>
               <Text style={shared.boxLabel}>SUCCESS LOOKS LIKE</Text>
-              <Text style={shared.p}>{q.successLooksLike}</Text>
+              <Text style={shared.p}>{successLooksLike}</Text>
+              {weeksWithMenu.length > 0 && (
+                <>
+                  <Text style={shared.boxLabel}>WEEKLY FOOD MENU</Text>
+                  {weeksWithMenu.map((w) => {
+                    const menuImage = matchGuideImageDistinct(`${w.focus_theme} ${w.food_menu}`, data.imageBank, usedFoodImages)
+                    return (
+                      <View key={w.week_number} style={{ marginBottom: 6 }}>
+                        <Text style={shared.p}>Week {w.week_number}: {w.food_menu}</Text>
+                        {menuImage && <Image src={menuImage.image_url} style={{ width: 90, height: 60, objectFit: 'cover', borderRadius: 4, marginTop: 3 }} />}
+                      </View>
+                    )
+                  })}
+                </>
+              )}
             </>
           )}
         </View>
       </View>
     )
   }
-  return [
-    <PageShell key="roadmap1" eyebrow={"YOUR 12-MONTH\nROADMAP"}>
-      <Text style={shared.title}>Your 12-month roadmap</Text>
-      <QuarterCardRow quarters={quarters} />
-      {quarterBlock(0)}
-      {quarterBlock(1)}
-    </PageShell>,
-    <PageShell key="roadmap2" eyebrow={"YOUR 12-MONTH ROADMAP ·\nCONTINUED"}>
-      {quarterBlock(2)}
-      {quarterBlock(3)}
-      <View style={{ ...shared.box, minHeight: 90, alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>
-        <Text style={{ fontSize: 9, fontStyle: 'italic', color: colors.accent }}>space for your coach&apos;s notes</Text>
-      </View>
-    </PageShell>,
-  ]
+  // Only print quarters that actually have generated content — a shorter
+  // plan (e.g. 3 months) should show months 1-3 and stop, not months 1-3
+  // followed by three pages of grayed-out "not yet planned" filler.
+  const plannedQuarterIdxs = [0, 1, 2, 3].filter((idx) => months.slice(idx * 3, idx * 3 + 3).some((m) => m.planned))
+  const plannedQuarters = quarters.filter((_, i) => plannedQuarterIdxs.includes(i))
+  const firstPlannedQuarterIdx = plannedQuarterIdxs[0] ?? 0
+  const quarterPage = (quarterIdx: number): ReactElement => {
+    const q = quarters[quarterIdx]
+    const quarterMonths = months.slice(quarterIdx * 3, quarterIdx * 3 + 3).filter((m) => m.planned)
+    return (
+      <PageShell key={`roadmap-q${quarterIdx + 1}`} eyebrow={quarterIdx === firstPlannedQuarterIdx ? "YOUR 12-MONTH\nROADMAP" : `YOUR 12-MONTH ROADMAP ·\n${q.label.toUpperCase()}`}>
+        {quarterIdx === firstPlannedQuarterIdx && (
+          <>
+            <Text style={shared.title}>Your 12-month roadmap</Text>
+            <QuarterCardRow quarters={plannedQuarters} />
+          </>
+        )}
+        <Text style={{ ...shared.section, marginBottom: 10 }}>{q.label} · {q.monthRange}</Text>
+        {quarterMonths.map(monthBlock)}
+      </PageShell>
+    )
+  }
+  return plannedQuarterIdxs.map(quarterPage)
 }
 
 function lifestylePages(data: GuideData): ReactElement[] {
   const bullets = parseBullets(data.roadmap.lifestyle_guidelines)
+  const heroImage = matchGuideImageDistinct(data.roadmap.lifestyle_guidelines, data.imageBank, new Set())
   return [
     <PageShell key="lifestyle1" eyebrow={"LIFESTYLE\nGUIDELINES"}>
       <Text style={shared.title}>Lifestyle guidelines</Text>
       <Text style={shared.dek}>Built from your consult — each change below is tied to something specific in your case, not general advice.</Text>
+      {heroImage && <Image src={heroImage.image_url} style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 8, marginBottom: 14 }} />}
       {bullets.slice(0, 2).map((bullet, i) => (
         <View key={i} style={{ marginBottom: 14 }}>
           <Text style={shared.p}>{bullet}</Text>
@@ -374,7 +437,9 @@ function lifestylePages(data: GuideData): ReactElement[] {
         <View style={shared.box}>
           <Text style={shared.boxLabel}>GROUNDED IN</Text>
           {data.roadmap.kb_sources.map((s, i) => (
-            <Text key={i} style={shared.p}>· {s.title}</Text>
+            <Link key={i} src={sourceSearchUrl(s.title, s.source_type)}>
+              <Text style={{ ...shared.p, color: colors.accent, textDecoration: 'underline' }}>· {cleanSourceTitle(s.title)}</Text>
+            </Link>
           ))}
         </View>
       )}
@@ -423,24 +488,74 @@ function nutritionPages(): ReactElement[] {
 
 function recipesPages(data: GuideData): ReactElement[] {
   const coachName = data.coach?.full_name || 'your coach'
+  const firstName = data.patient.full_name?.split(' ')[0] || 'You'
+  const parsed = parseNutritionistGuidelines(data.roadmap.nutritionist_guidelines)
+  const selection = selectRecipesForPatient(
+    { primaryConcern: data.patient.primary_concern || '', dietProtocol: parsed.dietProtocol },
+    data.recipeBank
+  )
+  const allMatches = [...selection.breakfast, ...selection.lunch, ...selection.dinner]
+  const usedImages = new Set<string>()
+
+  // No real match beats a fabricated one — if nothing in the recipe bank
+  // genuinely fits this patient's concern or diet notes, say so plainly
+  // instead of printing recipes that aren't actually relevant to them.
+  if (allMatches.length === 0) {
+    return [
+      <PageShell key="recipes" eyebrow={"THIS WEEK'S\nRECIPES"}>
+        <Text style={shared.title}>This week&apos;s recipes</Text>
+        <Text style={shared.dek}>Nothing in the recipe bank is tagged to match {firstName}&apos;s specific concern or diet notes yet — rather than print something generic, {coachName.split(' ')[0]} will hand you a recipe card chosen fresh for this week instead.</Text>
+        <View style={shared.box}>
+          <Text style={shared.boxLabel}>BUILD YOUR PLATE FROM</Text>
+          <Text style={shared.p}>Use the food lists on pages 10–12 as your building blocks — any combination that hits the plate ratios shown works.</Text>
+        </View>
+      </PageShell>,
+    ]
+  }
+
+  const recipeCard = (m: ReturnType<typeof selectRecipesForPatient>['breakfast'][number]) => {
+    const img = matchGuideImageDistinct(`${m.recipe.name} ${m.recipe.tags.join(' ')}`, data.imageBank, usedImages)
+    return (
+      <View key={m.recipe.id} style={{ marginBottom: 16 }}>
+        {/* Title + image kept as their own small atomic block — a
+            percentage-width Image inside the same wrap={false} block as a
+            long text box was measuring its background height before the
+            image resolved, so the text rendered past the box's bottom edge.
+            Splitting them into separate blocks (and using a fixed pixel
+            width instead of '100%') avoids that mismeasurement. */}
+        <View wrap={false}>
+          <Text style={shared.section}>{m.recipe.name}{m.recipe.protein_label ? ` · ${m.recipe.protein_label}` : ''}</Text>
+          {img && <Image src={img.image_url} style={{ width: 500, height: 110, objectFit: 'cover', borderRadius: 8, marginBottom: 8 }} />}
+        </View>
+        <View style={shared.box} wrap={false}>
+          <Text style={shared.boxLabel}>WHY THIS ONE</Text>
+          <Text style={shared.p}>{m.why}</Text>
+          <Text style={shared.boxLabel}>INGREDIENTS</Text>
+          {splitRecipeLines(m.recipe.ingredients).map((line, i) => <Text key={i} style={shared.p}>· {line}</Text>)}
+          <Text style={shared.boxLabel}>METHOD</Text>
+          {splitRecipeLines(m.recipe.steps).map((line, i) => <Text key={i} style={shared.p}>{i + 1}. {line}</Text>)}
+        </View>
+      </View>
+    )
+  }
+
   return [
     <PageShell key="recipes" eyebrow={"THIS WEEK'S\nRECIPES"}>
       <Text style={shared.title}>This week&apos;s recipes</Text>
-      <Text style={shared.dek}>Recipes are chosen fresh with your coach around what&apos;s in season and what you actually enjoy — rather than print a fixed set here that goes stale, {coachName.split(' ')[0]} will hand you this week&apos;s recipe card alongside this guide.</Text>
-      <View style={shared.box}>
-        <Text style={shared.boxLabel}>BUILD YOUR PLATE FROM</Text>
-        <Text style={shared.p}>Use the food lists on pages 10–12 as your building blocks — any combination that hits the plate ratios shown works.</Text>
-      </View>
+      <Text style={shared.dek}>Picked specifically for {firstName}&apos;s plan — matched to your concern and diet notes, not a generic list.</Text>
+      {allMatches.map(recipeCard)}
     </PageShell>,
   ]
 }
 
 function superfoodPages(data: GuideData): ReactElement[] {
   const coachName = data.coach?.full_name || 'your coach'
+  const image = matchGuideImageDistinct('superfood nutrition weekly pick seasonal', data.imageBank, new Set())
   return [
     <PageShell key="superfood" eyebrow={"SUPERFOOD OF\nTHE WEEK"}>
       <Text style={shared.title}>Superfood of the week</Text>
       <Text style={shared.dek}>{coachName.split(' ')[0]} picks this fresh each week around what&apos;s in season and what&apos;s actually useful for where you are right now — rather than print one fixed pick here that goes stale the week after.</Text>
+      {image && <Image src={image.image_url} style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 8, marginBottom: 14 }} />}
       <View style={shared.box}>
         <Text style={shared.boxLabel}>YOU&apos;LL GET THIS</Text>
         <Text style={shared.p}>Alongside your recipe card each week, with a short note on why it was chosen for you specifically.</Text>
@@ -467,7 +582,12 @@ function groceryPages(data: GuideData): ReactElement[] {
         {GROCERY_CATEGORIES.slice(0, 3).map((c) => (
           <View key={c.head} style={grid.col}>
             <Text style={grid.colHead}>{c.head}</Text>
-            {c.items.map((item) => <Text key={item} style={grid.colItem}>☐ {item}</Text>)}
+            {c.items.map((item) => (
+              <View key={item} style={grid.checkRow}>
+                <CheckboxSquare />
+                <Text style={grid.checkText}>{item}</Text>
+              </View>
+            ))}
           </View>
         ))}
       </View>
@@ -477,7 +597,12 @@ function groceryPages(data: GuideData): ReactElement[] {
         {GROCERY_CATEGORIES.slice(3).map((c) => (
           <View key={c.head} style={grid.col}>
             <Text style={grid.colHead}>{c.head}</Text>
-            {c.items.map((item) => <Text key={item} style={grid.colItem}>☐ {item}</Text>)}
+            {c.items.map((item) => (
+              <View key={item} style={grid.checkRow}>
+                <CheckboxSquare />
+                <Text style={grid.checkText}>{item}</Text>
+              </View>
+            ))}
           </View>
         ))}
       </View>
@@ -686,6 +811,7 @@ export function ClientGuideDocument({
           <View style={cover.logo}><Text style={cover.logoText}>CLP</Text></View>
           <Text style={cover.brand}>CLINIC LIVING PLUS</Text>
           <Text style={cover.title}>Your wellness guide</Text>
+          <View style={cover.rule} />
           <Text style={cover.client}>{data.patient.full_name}</Text>
           <Text style={cover.goal}>GOAL: {data.goalLabel.toUpperCase()}</Text>
         </View>

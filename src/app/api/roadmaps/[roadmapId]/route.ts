@@ -23,6 +23,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ ro
   const update: Record<string, unknown> = {}
   if (typeof body.overview === 'string') update.overview = body.overview
   if (typeof body.lifestyle_guidelines === 'string') update.lifestyle_guidelines = body.lifestyle_guidelines
+  // Coach edits to per-week goals/food menu from the wellness-guide preview —
+  // the whole array is replaced, mirroring how the AI generator writes it.
+  if (Array.isArray(body.weekly_schedule)) update.weekly_schedule = body.weekly_schedule
   if (body.guide_overrides && typeof body.guide_overrides === 'object') {
     const { data: existing } = await supabaseAdmin.from('roadmaps').select('guide_overrides').eq('id', roadmapId).single()
     update.guide_overrides = { ...(existing?.guide_overrides ?? {}), ...body.guide_overrides }

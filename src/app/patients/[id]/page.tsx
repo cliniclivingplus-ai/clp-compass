@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Plus, Pencil, FileText, Map, StickyNote, LayoutDashboard, Calendar, ChevronRight, Microscope } from 'lucide-react'
+import { ArrowLeft, Plus, Pencil, FileText, StickyNote, LayoutDashboard, Calendar, ChevronRight, Microscope } from 'lucide-react'
 import ReportsTab from '@/components/ReportsTab'
 
 // ── Design tokens ────────────────────────────────────────────────────
@@ -53,7 +53,6 @@ type Roadmap = {
 const TABS = [
   { key: 'sessions', label: 'Sessions', icon: FileText },
   { key: 'reports', label: 'Reports', icon: Microscope },
-  { key: 'roadmaps', label: 'Roadmaps', icon: Map },
   { key: 'notes', label: 'Notes', icon: StickyNote },
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
 ] as const
@@ -197,7 +196,7 @@ export default function PatientPage() {
         {TABS.map(t => {
           const Icon = t.icon
           const active = tab === t.key
-          const badge = t.key === 'sessions' ? counts.sessions : t.key === 'roadmaps' ? counts.roadmaps : null
+          const badge = t.key === 'sessions' ? counts.sessions : t.key === 'dashboard' ? counts.roadmaps : null
           return (
             <button
               key={t.key}
@@ -232,7 +231,6 @@ export default function PatientPage() {
       <div style={{ marginTop: 22 }}>
         {tab === 'sessions' && <SessionsTab sessions={sessions} roadmaps={roadmaps} patientId={patientId} router={router} />}
         {tab === 'reports' && <ReportsTab patientId={patientId} />}
-        {tab === 'roadmaps' && <RoadmapsTab roadmaps={roadmaps} patientId={patientId} />}
         {tab === 'notes' && <NotesTab sessions={sessions} />}
         {tab === 'dashboard' && <DashboardTab roadmaps={roadmaps} />}
       </div>
@@ -308,7 +306,7 @@ function SessionsTab({ sessions, roadmaps, patientId, router }: { sessions: Sess
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 14.5, fontWeight: 700, color: C.ink, textTransform: 'capitalize' }}>{(s.session_type || 'session').replace('-', ' ')}</span>
+                <span style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>Session {ordered.length - i}</span>
                 <StatusChip status={s.status} />
                 {i === 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: C.green, background: C.greenSoft, borderRadius: 20, padding: '2px 8px' }}>LATEST</span>}
               </div>
@@ -326,37 +324,6 @@ function SessionsTab({ sessions, roadmaps, patientId, router }: { sessions: Sess
   )
 }
 
-function RoadmapsTab({ roadmaps, patientId }: { roadmaps: Roadmap[]; patientId: string }) {
-  if (roadmaps.length === 0) {
-    return <EmptyState icon={Map} title="No guides yet" body="Generate a PDF guide from any session to build the patient's personalised plan. It'll appear here for easy reference across visits." />
-  }
-  const ordered = [...roadmaps].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {ordered.map((r, i) => (
-        <Link
-          key={r.id}
-          href={`/api/roadmaps/${r.id}/guide-pdf`}
-          target="_blank"
-          style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: '16px 18px', textDecoration: 'none', display: 'block', boxShadow: '0 1px 2px rgba(26,36,23,0.03)' }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>
-                {r.duration_months ? `${r.duration_months >= 1 ? r.duration_months : Math.round(r.duration_months * 4)}${r.duration_months >= 1 ? '-month' : '-week'} plan` : 'Roadmap'}
-              </span>
-              {i === 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: C.green, background: C.greenSoft, borderRadius: 20, padding: '2px 8px' }}>CURRENT</span>}
-            </div>
-            <span style={{ fontSize: 12, color: C.faint }}>{fmtDate(r.created_at)}</span>
-          </div>
-          {r.overview && <p style={{ fontSize: 13, color: C.muted, margin: '8px 0 0', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{r.overview}</p>}
-          <div style={{ fontSize: 12, color: C.green, fontWeight: 600, marginTop: 10 }}>Download PDF guide →</div>
-        </Link>
-      ))}
-    </div>
-  )
-}
-
 function NotesTab({ sessions }: { sessions: Session[] }) {
   const withNotes = sessions.filter(s => (s.pre_meeting_notes && s.pre_meeting_notes.trim()) || (s.post_meeting_notes && s.post_meeting_notes.trim()))
   if (withNotes.length === 0) {
@@ -367,8 +334,8 @@ function NotesTab({ sessions }: { sessions: Session[] }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {ordered.map(s => (
         <div key={s.id} style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: '16px 18px' }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.greenDeep, textTransform: 'capitalize', marginBottom: 10 }}>
-            {(s.session_type || 'session').replace('-', ' ')} · {fmtDate(s.session_date || s.created_at)}
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.greenDeep, marginBottom: 10 }}>
+            {fmtDate(s.session_date || s.created_at)}
           </div>
           {s.pre_meeting_notes?.trim() && (
             <div style={{ marginBottom: s.post_meeting_notes?.trim() ? 12 : 0 }}>
@@ -389,16 +356,32 @@ function NotesTab({ sessions }: { sessions: Session[] }) {
 }
 
 function DashboardTab({ roadmaps }: { roadmaps: Roadmap[] }) {
-  const latest = [...roadmaps].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0]
-  if (!latest) {
-    return <EmptyState icon={LayoutDashboard} title="No dashboard yet" body="Once a roadmap exists, generate a patient dashboard from its interpret page. The patient-facing health dashboard will link here." />
+  if (roadmaps.length === 0) {
+    return <EmptyState icon={LayoutDashboard} title="No dashboard yet" body="Generate a dashboard from any session to build the patient's personalised plan. It'll appear here for easy reference across visits." />
   }
+  // A patient can accumulate a roadmap per session over time — list every
+  // one rather than only ever opening the latest, so a coach can pick the
+  // specific plan they actually want the shareable dashboard link for.
+  const ordered = [...roadmaps].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
   return (
-    <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: '20px', textAlign: 'center' }}>
-      <div style={{ fontSize: 14, color: C.muted, marginBottom: 14 }}>The patient dashboard is generated from the latest roadmap.</div>
-      <Link href={`/dashboard/${latest.id}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '11px 20px', borderRadius: 10, background: C.green, color: '#fff', fontSize: 13.5, fontWeight: 700, textDecoration: 'none' }}>
-        <LayoutDashboard size={15} /> Open patient dashboard
-      </Link>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {ordered.map((r, i) => (
+        <div key={r.id} style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: '16px 18px', boxShadow: '0 1px 2px rgba(26,36,23,0.03)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>
+                {r.duration_months ? `${r.duration_months >= 1 ? r.duration_months : Math.round(r.duration_months * 4)}${r.duration_months >= 1 ? '-month' : '-week'} plan` : 'Roadmap'}
+              </span>
+              {i === 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: C.green, background: C.greenSoft, borderRadius: 20, padding: '2px 8px' }}>CURRENT</span>}
+              <span style={{ fontSize: 12, color: C.faint }}>{fmtDate(r.created_at)}</span>
+            </div>
+            <Link href={`/dashboard/${r.id}`} target="_blank" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, background: C.green, color: '#fff', fontSize: 12.5, fontWeight: 700, textDecoration: 'none', flexShrink: 0 }}>
+              <LayoutDashboard size={13} /> Open dashboard
+            </Link>
+          </div>
+          {r.overview && <p style={{ fontSize: 13, color: C.muted, margin: '8px 0 0', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{r.overview}</p>}
+        </div>
+      ))}
     </div>
   )
 }

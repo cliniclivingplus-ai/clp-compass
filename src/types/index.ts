@@ -17,7 +17,7 @@ export type Session = {
   id: string
   patient_id: string
   session_date: string
-  session_type: 'first-meet' | 'follow-up' | 'review'
+  session_type?: 'first-meet' | 'follow-up' | 'review' // legacy DB default — no longer set or shown by the UI
   gemini_doc_raw: string | null
   pre_meeting_notes: string | null
   post_meeting_notes: string | null

@@ -113,7 +113,7 @@ export default function NewPatientPage() {
 
       {/* Flow indicator */}
       <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-        {['Add Patient', 'Paste Gemini Doc', 'Q&A', 'Generate PDF Guide'].map((step, i) => (
+        {['Add Patient', 'Paste Gemini Doc', 'Q&A', 'Generate Dashboard'].map((step, i) => (
           <div key={step} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <div style={{ width: 22, height: 22, borderRadius: '50%', background: i === 0 ? '#538A22' : '#e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: i === 0 ? '#fff' : '#9ca3af' }}>{i + 1}</div>
