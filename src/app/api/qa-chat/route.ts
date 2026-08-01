@@ -157,6 +157,8 @@ function baseIdentity(patientName: string) {
 
 The patient is "${patientName}". Always speak ABOUT the patient in the third person ("${patientName} reports…", "her glucose…"). NEVER address the patient ("what is your…") — you are talking to a coach, not the patient.
 
+WHY THIS CONVERSATION MATTERS: everything said here becomes the raw material for ${patientName}'s printed PDF wellness guide — its Lifestyle, Nutrition, Recipes, Grocery List, Supplements, and Track-Progress pages are generated directly from the specific facts surfaced in this discussion. A vague exchange produces a generic, useless guide; a concrete one (exact foods, times, equipment, budget, preferences) produces a guide that reads like it was written for this one person. Steer the discussion toward the kind of concrete detail that can be printed, not just clinical theory.
+
 HOW TO REPLY — this matters most:
 - Keep it SHORT and conversational — a few plain sentences, like you're chatting, not writing a report.
 - Raise ONE point or idea at a time. Do not dump everything at once.
@@ -224,7 +226,7 @@ something correctly, don't say it again in different words.
 Return STRICT JSON only, no markdown:
 {
   "summary": "3-4 sentence clinical summary of ${patientName}'s main concerns and relevant findings, third person",
-  "checklist": ["4 to 6 of ${patientName}'s concerns from the transcript, ordered by CLINICAL URGENCY/SEVERITY — most pressing first (e.g. an acute or worsening symptom before a general lifestyle habit). Each one phrased as a specific coaching discussion point, not a question to the patient."],
+  "checklist": ["4 to 6 discussion points for this session, ordered by CLINICAL URGENCY/SEVERITY first (e.g. an acute or worsening symptom before a general lifestyle habit) — most pressing first. Mix two kinds of items: (a) ${patientName}'s clinical concerns from the transcript, and (b) GUIDE-GAP items — concrete practical details the transcript does NOT yet cover but the printed guide needs, e.g. exact foods/recipes they enjoy and can realistically cook, kitchen/cooking constraints, grocery access and budget, exercise equipment/time/schedule, supplement budget or intolerances, and how they'd actually like to track progress. Only include a guide-gap item if that detail is genuinely missing from the transcript — don't ask about something already answered. Each item phrased as a specific coaching discussion point, not a question to the patient."],
   "goal": "ONE motivating, forward-looking sentence for the cover of ${patientName}'s wellness guide — written as the OUTCOME they're working toward, not a restatement of their problem. NEVER phrase it as the diagnosis/complaint (e.g. NOT 'Difficulty losing weight and gut inflammation'). Instead say what life looks like once this is handled (e.g. 'Lose the extra weight for good and feel steady all day, every day'). Plain language, no clinical terms, under 15 words.",
   "coach_quote": "ONE short, warm sentence in the COACH'S own voice, speaking directly to ${patientName} — built around ONE concrete, specific, non-clinical detail they actually mentioned in the transcript (a food ritual, a person, a routine, a small preference). Format like: '[First name] — I remember what you said about ___. That's exactly...'. This must be grounded in something explicitly said in the transcript — if nothing sufficiently specific and personal was mentioned, return an empty string. Never invent a detail that wasn't in the transcript."
 }`,
@@ -311,6 +313,18 @@ Return STRICT JSON only, no markdown:
           setTimeout(() => resolve({ kbContext: '', sources: [] }), 5000)
         );
         const { kbContext, sources } = await Promise.race([retrieveKbContext(latestQuestion), kbTimeout]);
+        // gpt-oss-20b doesn't reliably self-judge "did the coach just answer my
+        // clarifying question / pick one of my offered angles" — observed live:
+        // it kept re-asking near-identical clarifying questions turn after turn
+        // even when the coach directly answered or picked "nap strategies" from
+        // its own offered list. Same class of bug as the weekly-chunk numbering
+        // issue elsewhere in this codebase: don't trust the model's judgment for
+        // something mechanical — detect it deterministically instead. Every miss
+        // reply this prompt produces is instructed to say the topic "isn't
+        // covered in the current knowledge base", so that phrase reliably marks
+        // the previous turn as a miss; if the coach then replied at all, force
+        // a general answer next turn instead of asking the model to decide.
+        const previousWasKbMiss = !isOpening && /knowledge base/i.test(priorAssistantMsg);
         // Strict KB-grounding rules: answer ONLY from the retrieved excerpts when
         // they exist. When nothing was retrieved, don't quietly fall back to
         // general knowledge — say so, and only answer generally if the coach
@@ -327,10 +341,19 @@ Return STRICT JSON only, no markdown:
         // means "retrieved excerpts were irrelevant and I'm NOT answering
         // generally — I'm asking for clarification / offering alternatives
         // instead". Never emit both.
-        const missInstructions = `HARD RULE: unless the coach's latest message already explicitly asked you to proceed anyway with a general/best-practice answer despite the gap (e.g. "yes give me general advice", "that's fine, go ahead") — your reply must NOT contain any clinical recommendation, protocol, or advice of any kind. Not one bullet point, not "here's a quick approach," nothing. This is the single most-violated rule, so check it twice: if you're about to write a recommendation and you weren't just given permission, stop and delete it. Your entire reply must be just: tell the coach plainly this specific point isn't covered in the current knowledge base, then either ask a clarifying question or offer 2-3 concrete alternative angles to explore instead. That's it.
-If the coach WAS just given permission (per the exception above), your reply MUST start with the literal token "[GENERAL]" as the very first characters, nothing before it — and even then, stay short and conversational per your core instructions: one point, plain sentences, no bulleted lists or multi-step protocols, same as any other reply.
+        const missInstructions = `HARD RULE: your reply must NOT contain any clinical recommendation, protocol, or advice of any kind UNLESS the coach's latest message already gives you enough to proceed — which covers THREE cases, not just one: (a) an explicit go-ahead ("yes give me general advice", "that's fine, go ahead"), (b) a direct answer to the clarifying question you just asked (e.g. you asked what shift pattern she's on and the coach told you), or (c) the coach naming/picking one of the alternative angles you just offered (e.g. you offered "nap strategies" as an option and the coach said "nap strategies" or asked about it). All three count as permission — don't wait for magic words specifically, recognize when the coach has actually responded to what you asked.
+If NONE of those apply yet (this is a fresh topic with no prior clarifying question or offered angles from you): your entire reply must be just: tell the coach plainly this specific point isn't covered in the current knowledge base, then either ask ONE clarifying question or offer 2-3 concrete alternative angles to explore instead. That's it — no recommendations.
+Once (a), (b), or (c) applies: proceed immediately with real, well-established general guidance on exactly what the coach specified. Never ask the same clarifying question twice in a row, never re-offer the same list of alternatives a second time — if you already asked or already offered options once and the coach responded at all, that response is your cue to answer, not to gate again. Your reply MUST start with the literal token "[GENERAL]" as the very first characters, nothing before it — and even then, stay short and conversational per your core instructions: one point, plain sentences, no bulleted lists or multi-step protocols, same as any other reply.
 If the coach's message is just a conversational continuation ("yes" to a plan, logistics) that doesn't actually need new factual grounding, respond naturally and don't mention the knowledge base or use any marker at all.`;
-        const groundingRule = kbContext
+        const groundingRule = previousWasKbMiss
+          // Deterministic override — see previousWasKbMiss comment above. Skip
+          // asking the model to judge whether the coach "gave enough" and just
+          // tell it to answer, so the miss-loop can't repeat a second time.
+          // Applies regardless of whether kbContext retrieved anything this turn
+          // (a keyword hit on an already-irrelevant topic was exactly what kept
+          // re-triggering the old NO_MATCH/miss path in the loop this fixes).
+          ? `\n\nGROUNDING OVERRIDE: your last reply told the coach this topic wasn't in the knowledge base and either asked a clarifying question or offered alternative angles. The coach has now replied. Do NOT ask that same thing again and do NOT re-offer the same alternatives, even if the excerpts below (if any) still look off-topic. If the excerpts below are genuinely relevant, base your reply on them normally. Otherwise, proceed immediately with real, well-established general guidance addressing exactly what the coach said, and your reply MUST start with the literal token "[GENERAL]" as the very first characters, nothing before it. Either way, stay short and conversational per your core instructions (one point, plain sentences, no bulleted lists or multi-step protocols).`
+          : kbContext
           ? `\n\nGROUNDING RULE: First check whether the knowledge base excerpts above actually address the coach's specific question — the search that found them is keyword-based and imperfect, so they may be irrelevant. If they DO address it, base your reply strictly on them, don't introduce clinical claims they don't support. If they DON'T (wrong topic entirely) and you are not giving a general answer per the rule below, your reply must start with the literal token "[NO_MATCH]" as the very first characters. Either way, if treating this as a miss: ${missInstructions}`
           : `\n\nGROUNDING RULE: No knowledge base material was found for this question. If it's a genuine factual/clinical question: ${missInstructions}`;
 
@@ -342,14 +365,15 @@ If the coach's message is just a conversational continuation ("yes" to a plan, l
           const stateLines = checklist.map((c) => `${c.index}. [${c.status}] ${c.text}`).join('\n');
           const pendingCount = checklist.filter((c) => c.status === 'pending').length;
           const deferredCount = checklist.filter((c) => c.status === 'deferred').length;
-          checklistRule = `\n\nCHECKLIST — you are leading this discussion through these concerns, in priority order (most clinically urgent first):
+          checklistRule = `\n\nCHECKLIST — you are leading this discussion through these items, in priority order (most clinically urgent first). Some are clinical concerns; others are GUIDE-GAP items — concrete practical details missing from the transcript that the printed guide needs:
 ${stateLines}
 
 HOW TO LEAD:
 - Work through "pending" items in the order listed, one at a time. Ask about ONE item, then have a real back-and-forth about it — don't rush to the next item while the coach is still engaging with the current one.
+- For a GUIDE-GAP item, ask for the literal, concrete detail that will go straight into the guide — a named food, a specific time, a piece of equipment, a rupee budget, a preferred tracking method — not a general discussion of the topic. E.g. instead of "let's talk about her exercise," ask "does she have any equipment at home, or is this bodyweight-only, and roughly how many days a week can she realistically commit?" Once you have a concrete, specific answer, that item is resolved — move on.
 - HARD RULE, no exceptions: the moment your reply's main topic shifts away from the item you were just discussing — to a new item, or circling back to a deferred one — that reply MUST begin with \`[CHECKLIST_UPDATE:{"index":N,"status":"discussed"}]\` or \`[CHECKLIST_UPDATE:{"index":N,"status":"deferred"}]\`, where N is the item you're LEAVING (not the one you're moving to). This is mechanical, not optional: if you're about to talk about a different item than last turn, you already forgot the marker — go back and add it. The app has no other way to know an item is resolved. If you're continuing the SAME item as last turn, don't use any marker.
 - ${pendingCount > 0 ? `There ${pendingCount === 1 ? 'is' : 'are'} ${pendingCount} pending item(s) left.` : deferredCount > 0 ? `No pending items left, but ${deferredCount} were deferred — circle back to the highest-priority deferred one now ("Let's come back to X you weren't sure about earlier...") using the same marker mechanism when it's resolved.` : 'Every item has been covered. Congratulate the coach briefly and ask if they want to draft roadmap instructions from this discussion now.'}
-- Never mention "checklist" or "index numbers" to the coach — just lead the conversation naturally, like a senior coach who has a mental list of what to cover.`;
+- Never mention "checklist", "guide-gap", or "index numbers" to the coach — just lead the conversation naturally, like a senior coach who has a mental list of what to cover.`;
         }
 
         const chatRequest = {

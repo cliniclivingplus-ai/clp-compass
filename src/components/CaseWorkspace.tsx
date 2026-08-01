@@ -34,6 +34,7 @@ export default function CaseWorkspace({
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
+  const [chatError, setChatError] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
   function persistChecklist(list: ChecklistItem[]) {
@@ -125,27 +126,44 @@ export default function CaseWorkspace({
         body: JSON.stringify({ mode: 'chat', patientName, transcript, geminiSummary, checklist, messages: [] }),
       })
       const j = await r.json()
-      const opener: Msg[] = [{ role: 'assistant', content: j.reply || j.error || '…', sources: Array.isArray(j.sources) ? j.sources : [], generalAnswer: !!j.generalAnswer, kbMiss: !!j.kbMiss }]
+      if (j.error || !j.reply) { setChatError(j.error || 'The clinical co-pilot could not open the discussion.'); return }
+      const opener: Msg[] = [{ role: 'assistant', content: j.reply, sources: Array.isArray(j.sources) ? j.sources : [], generalAnswer: !!j.generalAnswer, kbMiss: !!j.kbMiss }]
       setMessages(opener); persist(opener)
       if (Array.isArray(j.checklist) && j.checklist.length) { setChecklist(j.checklist); persistChecklist(j.checklist) }
-    } catch {}
+    } catch { setChatError('Connection issue — try again.') }
     finally { setOpening(false); setThinking(false) }
   }
-  async function send(text: string) {
-    const clean = text.trim(); if (!clean || thinking) return
-    const next = [...messages, { role: 'user' as const, content: clean }]
-    setMessages(next); setInput(''); setThinking(true)
+  // Shared by send() and retry() — takes the message list ENDING in the
+  // unanswered user turn and tries to get a reply for it. On failure, the
+  // unanswered user turn stays in `messages` (so retry can resend it as-is)
+  // but nothing gets persisted or added to history — a failed attempt must
+  // never enter the conversation the model sees on the next call, or leak
+  // into qa_pairs (which feeds the guide generator downstream).
+  async function sendMessages(next: Msg[]) {
+    setMessages(next); setThinking(true); setChatError('')
     try {
       const r = await fetch('/api/qa-chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: 'chat', patientName, transcript, geminiSummary, checklist, messages: next }),
       })
       const j = await r.json()
-      const withReply = [...next, { role: 'assistant' as const, content: j.reply || j.error || '…', sources: Array.isArray(j.sources) ? j.sources : [], generalAnswer: !!j.generalAnswer, kbMiss: !!j.kbMiss }]
+      if (j.error || !j.reply) { setChatError(j.error || 'The clinical co-pilot could not respond.'); return }
+      const withReply = [...next, { role: 'assistant' as const, content: j.reply, sources: Array.isArray(j.sources) ? j.sources : [], generalAnswer: !!j.generalAnswer, kbMiss: !!j.kbMiss }]
       setMessages(withReply); persist(withReply)
       if (Array.isArray(j.checklist) && j.checklist.length) { setChecklist(j.checklist); persistChecklist(j.checklist) }
-    } catch { setMessages([...next, { role: 'assistant', content: 'Connection issue — try again.' }]) }
+    } catch { setChatError('Connection issue — try again.') }
     finally { setThinking(false) }
+  }
+  function send(text: string) {
+    const clean = text.trim(); if (!clean || thinking) return
+    setInput('')
+    sendMessages([...messages, { role: 'user' as const, content: clean }])
+  }
+  function retry() {
+    if (thinking) return
+    if (!messages.length) { openDiscussion(); return }
+    if (messages[messages.length - 1].role !== 'user') return
+    sendMessages(messages)
   }
   const cardBase = { background: C.card, borderRadius: 16, border: `1px solid ${C.line}`, boxShadow: '0 1px 3px rgba(26,36,23,0.04)' }
 
@@ -174,21 +192,7 @@ export default function CaseWorkspace({
             )}
           </div>
         ) : (
-          <>
-            <p style={{ fontSize: 14, color: C.ink, margin: 0, lineHeight: 1.6 }}>{summary}</p>
-            {goal && (
-              <div style={{ marginTop: 10, display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: C.greenDeep, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Guide goal</span>
-                <span style={{ fontSize: 13, color: C.ink, fontStyle: 'italic' }}>{goal}</span>
-              </div>
-            )}
-            {coachQuote && (
-              <div style={{ marginTop: 6, display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: C.greenDeep, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Coach quote</span>
-                <span style={{ fontSize: 13, color: C.ink, fontStyle: 'italic' }}>&ldquo;{coachQuote}&rdquo;</span>
-              </div>
-            )}
-          </>
+          <p style={{ fontSize: 14, color: C.ink, margin: 0, lineHeight: 1.6 }}>{summary}</p>
         )}
 
         {transcript && (
@@ -323,6 +327,16 @@ export default function CaseWorkspace({
           {thinking && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: C.faint, fontSize: 12.5 }}>
               <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Thinking through the case…
+            </div>
+          )}
+          {chatError && !thinking && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: C.amberSoft, border: '1px solid #F0D9B5', borderRadius: 10, padding: '9px 12px' }}>
+              <AlertCircle size={13} color="#9A6316" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: 12.5, color: '#7A5012', flex: 1 }}>{chatError}</span>
+              <button onClick={retry}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: C.greenDeep, background: C.card, border: `1px solid ${C.greenBorder}`, borderRadius: 8, padding: '4px 10px', cursor: 'pointer', flexShrink: 0 }}>
+                <RotateCw size={12} /> Retry
+              </button>
             </div>
           )}
         </div>

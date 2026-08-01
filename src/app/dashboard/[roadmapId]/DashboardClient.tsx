@@ -1,0 +1,1218 @@
+'use client'
+import { useState, useMemo, useEffect, type ReactNode } from 'react'
+import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp } from 'lucide-react'
+import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoadmap'
+import { parseNutritionistGuidelines } from '@/lib/pdf/parseNutritionistGuidelines'
+import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
+import { selectRecipesForPatient, type RecipeMatch } from '@/lib/pdf/matchRecipes'
+import type { GuideData, DayMealSlot } from '@/lib/pdf/ClientGuideDocument'
+import { splitRecipeLines } from '@/lib/recipeText'
+import { FOOD_PLATES, GROCERY_CATEGORIES, type MealType } from '@/lib/foodPlates'
+
+const C = {
+  bg: '#F7EEE1', paper: '#FBF5EA', ink: '#2C2418', inkSoft: '#4A4034',
+  accent: '#B1512E', accentSoft: '#E7DAC0', rule: '#D8C6A4', muted: '#948A76', green: '#538A22', greenDeep: '#2F5214',
+}
+// One color per food-group slot in a meal plate — cycled by index, matches
+// across the wheel diagram and its pill chips so a category reads the same
+// color in both places.
+const CATEGORY_COLORS = ['#C1483D', '#D98A2B', '#8A7B1F', '#3E7CB1']
+
+type Checkin = { week_number: number; action_index: number; checkin_date: string }
+
+const cardStyle = { background: C.paper, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px', marginBottom: 18 }
+const sectionTitleStyle = { display: 'flex', alignItems: 'center', gap: 9, fontSize: 17, fontWeight: 700, color: C.ink, marginBottom: 14 }
+const bulletStyle = { fontSize: 13.5, color: C.ink, lineHeight: 1.6, margin: '0 0 8px' }
+const editInputStyle = {
+  width: '100%', padding: '9px 11px', borderRadius: 8, border: `1px solid ${C.rule}`,
+  fontSize: 13.5, color: C.ink, fontFamily: 'inherit', background: '#fff', boxSizing: 'border-box' as const,
+}
+const editLabelStyle = { fontSize: 10, color: C.muted, marginBottom: 3, textTransform: 'uppercase' as const, letterSpacing: '0.04em', fontWeight: 700 }
+const weekBoxLabel = { fontSize: 10.5, fontWeight: 700, color: C.accent, textTransform: 'uppercase' as const, letterSpacing: '0.04em', marginBottom: 6 }
+
+function parseBullets(text: string): string[] {
+  return (text || '')
+    .split(/\n|(?=•)/)
+    .map((s) => s.replace(/^[•\-\s]+/, '').trim())
+    .filter(Boolean)
+}
+
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+// Pure UTC date-string arithmetic — todayISO() is UTC-based, so walking the
+// streak backwards must stay in UTC too. Mixing this with local-time Date
+// methods (setDate/getDate) silently shifts by a day in any timezone ahead
+// of UTC (e.g. IST, UTC+5:30), which is exactly the kind of off-by-one that
+// looks fine in testing and wrong for every real user.
+function shiftDateISO(dateISO: string, deltaDays: number): string {
+  const d = new Date(`${dateISO}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + deltaDays)
+  return d.toISOString().slice(0, 10)
+}
+
+function asPhrase(sentence: string): string {
+  return sentence.trim().replace(/\.+$/, '')
+}
+
+// Mirrors the PDF's table of contents exactly — same 15 sections, same
+// order, same labels. "Nutrition guidelines" and "This week's recipes" both
+// point at the power-plates card since that's where the PDF's separate
+// nutrition and recipe pages collapse into one tabbed section here.
+// Sunday through Saturday show the week's goals (same content every day —
+// the goals themselves aren't tracked per calendar day in this app's data
+// model). Recipes are a separate, single section per week — 4 slots
+// matching the recipe bank's own categories directly, not per-day.
+const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack']
+const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks' }
+
+const TOC_ITEMS: { label: string; id: string }[] = [
+  { label: 'Founder’s note', id: 'founder' },
+  { label: 'Meet your coach', id: 'coach' },
+  { label: 'How to use this guide', id: 'howto' },
+  { label: 'Your why', id: 'why' },
+  { label: 'Your roadmap', id: 'roadmap' },
+  { label: 'Lifestyle guidelines', id: 'lifestyle' },
+  { label: 'Nutrition guidelines', id: 'nutrition' },
+  { label: 'This week’s recipes', id: 'nutrition' },
+  { label: 'Superfood of the week', id: 'superfood' },
+  { label: 'Grocery list', id: 'grocery' },
+  { label: 'Supplements', id: 'supplements' },
+  { label: 'Services', id: 'services' },
+  { label: 'Track your progress', id: 'track' },
+  { label: 'When to reach us', id: 'reach' },
+  { label: 'FAQ', id: 'faq' },
+]
+// Sticky site header (layout.tsx) is 60px + this TOC bar is ~46px — anchored
+// sections need enough scroll-margin to clear both when jumped to, or the
+// section title lands hidden underneath them.
+const SECTION_SCROLL_MARGIN = 112
+
+function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
+  const a = ((angleDeg - 90) * Math.PI) / 180
+  return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) }
+}
+function describeSlice(cx: number, cy: number, r: number, startAngle: number, endAngle: number) {
+  const start = polarToCartesian(cx, cy, r, endAngle)
+  const end = polarToCartesian(cx, cy, r, startAngle)
+  const largeArc = endAngle - startAngle <= 180 ? 0 : 1
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y} Z`
+}
+
+// A simple equal-slice wheel (not proportional to the actual ratios — those
+// are printed as text alongside it) that visually anchors "this meal = these
+// food groups, in one glance," matching the plate-diagram style coaches asked
+// for as more engaging than a plain bulleted list.
+function MealWheel({ categories, label }: { categories: string[]; label: string }) {
+  const cx = 100, cy = 100, r = 90
+  const n = categories.length
+  return (
+    <svg width={200} height={200} viewBox="0 0 200 200" style={{ flexShrink: 0 }}>
+      {categories.map((cat, i) => (
+        <path key={cat} d={describeSlice(cx, cy, r, (360 / n) * i, (360 / n) * (i + 1))} fill={CATEGORY_COLORS[i % CATEGORY_COLORS.length]} />
+      ))}
+      <circle cx={cx} cy={cy} r={38} fill={C.paper} stroke={C.rule} strokeWidth={1} />
+      <text x={cx} y={cy - 4} textAnchor="middle" fontSize={9} fontWeight={700} fill={C.ink}>POWER</text>
+      <text x={cx} y={cy + 9} textAnchor="middle" fontSize={9} fontWeight={700} fill={C.ink}>PLATE</text>
+      <text x={cx} y={cy + 22} textAnchor="middle" fontSize={8} fill={C.muted}>{label}</text>
+    </svg>
+  )
+}
+
+// Styled after the richer recipe-card reference the coach liked (hero image,
+// numbered ingredient chips, a connected step timeline) — but only with
+// fields this app actually stores. Fields the reference has that we don't
+// (prep/cook time, difficulty, tools, health score) are left out entirely
+// rather than invented.
+function RecipeBody({ match, imageUrl }: { match: RecipeMatch; imageUrl: string | null }) {
+  const recipe = match.recipe
+  const ingredients = splitRecipeLines(recipe.ingredients)
+  const steps = splitRecipeLines(recipe.steps)
+  return (
+    <>
+      {imageUrl ? (
+        <img src={imageUrl} alt={recipe.name} style={{ width: '100%', height: 170, objectFit: 'cover', borderRadius: 14, marginBottom: 16 }} />
+      ) : (
+        <div style={{ width: '100%', height: 170, borderRadius: 14, marginBottom: 16, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <ChefHat size={36} color={C.accent} />
+        </div>
+      )}
+      {recipe.protein_label && (
+        <div style={{ display: 'inline-block', fontSize: 10.5, fontWeight: 700, color: C.green, background: `${C.green}18`, borderRadius: 20, padding: '4px 10px', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{recipe.protein_label}</div>
+      )}
+      <div style={{ fontSize: 20, fontWeight: 700, color: C.ink, paddingRight: 28, marginBottom: 14 }}>{recipe.name}</div>
+
+      <div style={{ background: C.accentSoft, borderRadius: 10, padding: '10px 14px', marginBottom: 20, fontSize: 12.5, color: C.ink, fontStyle: 'italic', lineHeight: 1.5 }}>{match.why}</div>
+
+      <div style={weekBoxLabel}>Ingredients</div>
+      <div style={{ marginBottom: 20 }}>
+        {ingredients.map((line, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < ingredients.length - 1 ? `1px solid ${C.rule}` : 'none' }}>
+            <div style={{ width: 20, height: 20, borderRadius: 6, background: C.accentSoft, color: C.accent, fontSize: 10.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</div>
+            <span style={{ fontSize: 13, color: C.ink }}>{line}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={weekBoxLabel}>Directions</div>
+      <div>
+        {steps.map((line, i) => (
+          <div key={i} style={{ display: 'flex', gap: 12, position: 'relative', paddingBottom: i < steps.length - 1 ? 18 : 0 }}>
+            {i < steps.length - 1 && <div style={{ position: 'absolute', left: 12, top: 26, bottom: 0, width: 1.5, background: C.rule }} />}
+            <div style={{ width: 25, height: 25, borderRadius: '50%', background: C.accent, color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, zIndex: 1 }}>{i + 1}</div>
+            <div style={{ fontSize: 13, color: C.inkSoft, lineHeight: 1.55, paddingTop: 3 }}>{line}</div>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+// A single "accomplish this" goal row — both icon states are always in the
+// DOM (one hidden via display) rather than conditionally rendered, the same
+// pattern used everywhere else in this file for exportability: the static
+// download's toggleGoalExport() just flips which icon is visible and
+// restyles the text, no React re-render required.
+function GoalRow({ weekNumber, actionIndex, action, checked, onToggle }: {
+  weekNumber: number; actionIndex: number; action: string; checked: boolean; onToggle: () => void
+}) {
+  return (
+    <div data-goal-toggle={`${weekNumber}:${actionIndex}`} onClick={onToggle}
+      style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 7, padding: '2px 0' }}>
+      <span data-goal-icon-done style={{ display: checked ? 'inline-flex' : 'none', flexShrink: 0, marginTop: 1 }}>
+        <CheckCircle2 size={16} color={C.green} />
+      </span>
+      <span data-goal-icon-undone style={{ display: checked ? 'none' : 'inline-flex', flexShrink: 0, marginTop: 1 }}>
+        <Circle size={16} color={C.muted} />
+      </span>
+      <span data-goal-text style={{ fontSize: 13, color: checked ? C.muted : C.ink, textDecoration: checked ? 'line-through' : 'none', lineHeight: 1.5 }}>{action}</span>
+    </div>
+  )
+}
+
+// A ring-style progress indicator (plain SVG, no chart library) — used for
+// "adherence this month," styled after the calorie/macro rings in the
+// reference dashboard the coach liked, but always fed a real percentage
+// derived from recorded check-ins, never a placeholder number.
+function ProgressRing({ pct, label, sublabel, monthNumber, size = 84, stroke = 8, color = C.accent }: {
+  pct: number; label: string; sublabel?: string; monthNumber?: number; size?: number; stroke?: number; color?: string
+}) {
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  const clamped = Math.min(100, Math.max(0, pct))
+  const offset = c - (clamped / 100) * c
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: size + 16 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.rule} strokeWidth={stroke} />
+        <circle data-ring-circle={monthNumber} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+          strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
+          transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+        <text data-ring-pct={monthNumber} x="50%" y="50%" textAnchor="middle" dy="0.32em" fontSize={size * 0.22} fontWeight={700} fill={C.ink}>{Math.round(clamped)}%</text>
+      </svg>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, textAlign: 'center' }}>{label}</div>
+      {sublabel && <div data-ring-sub={monthNumber} style={{ fontSize: 10.5, color: C.muted, textAlign: 'center' }}>{sublabel}</div>}
+    </div>
+  )
+}
+
+function StatCard({ icon, value, label, color, dataStat, dataStatLabel }: {
+  icon: ReactNode; value: string | number; label: string; color: string; dataStat?: string; dataStatLabel?: string
+}) {
+  return (
+    <div style={{ flex: '1 1 130px', background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 12, padding: '12px 14px' }}>
+      <div style={{ width: 26, height: 26, borderRadius: 7, background: `${color}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>{icon}</div>
+      <div data-stat={dataStat} style={{ fontSize: 19, fontWeight: 700, color: C.ink }}>{value}</div>
+      <div data-stat-label={dataStatLabel} style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{label}</div>
+    </div>
+  )
+}
+
+// The exported static file has no React runtime, so tab-switching and the
+// recipe modal can't rely on onClick handlers or conditional rendering —
+// those simply vanish when the DOM is cloned to a string. Instead every meal
+// panel and every matched recipe's body is always present in the DOM (hidden
+// via inline style), and both the live page and the exported file toggle
+// that same display style — the live page via these React handlers, the
+// export via the plain-JS equivalents injected in downloadDashboard().
+type MonthExportData = { monthNumber: number; monthLabel: string; weeks: { week_number: number; totalActions: number }[] }
+
+function buildExportScript(roadmapId: string, checkins: Checkin[], monthsData: MonthExportData[]): string {
+  // A personal checklist for the patient's own copy of the file — never
+  // synced anywhere, not visible to the coach. Embedded once at download
+  // time as the starting dataset; every toggle after that reads/writes the
+  // SAME shape (a plain Checkin[] list) in localStorage (namespaced by
+  // roadmapId so multiple downloaded files don't collide in one browser),
+  // so "Track your progress" and the week/month tiles can be fully
+  // recomputed client-side with the exact same logic the live React
+  // page uses — not just a single icon flipped in isolation.
+  const checkinsJson = JSON.stringify(checkins).replace(/</g, '\\u003c')
+  const monthsJson = JSON.stringify(monthsData).replace(/</g, '\\u003c')
+  return `
+var CLP_ROADMAP_ID = '${roadmapId}';
+var CLP_STORAGE_KEY = 'clp-checkins-' + CLP_ROADMAP_ID;
+var CLP_BASE_CHECKINS = ${checkinsJson};
+var CLP_MONTHS = ${monthsJson};
+function clpGetCheckins(){
+  try {
+    var raw = localStorage.getItem(CLP_STORAGE_KEY);
+    if (raw === null) { localStorage.setItem(CLP_STORAGE_KEY, JSON.stringify(CLP_BASE_CHECKINS)); return CLP_BASE_CHECKINS.slice(); }
+    return JSON.parse(raw);
+  } catch(e) { return CLP_BASE_CHECKINS.slice(); }
+}
+function clpSetCheckins(list){ try { localStorage.setItem(CLP_STORAGE_KEY, JSON.stringify(list)); } catch(e){} }
+function clpShiftISO(dateISO, delta){
+  var d = new Date(dateISO + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+function clpTodayISO(){ return new Date().toISOString().slice(0, 10); }
+function showPlateExport(meal){
+  ['breakfast','lunch','dinner'].forEach(function(m){
+    var panel = document.getElementById('pp-'+m);
+    if (panel) panel.style.display = (m===meal) ? '' : 'none';
+    var btn = document.querySelector('[data-meal-tab="'+m+'"]');
+    if (btn) {
+      if (m===meal) { btn.style.background = '${C.greenDeep}'; btn.style.color = '#fff'; btn.style.border = 'none'; }
+      else { btn.style.background = '${C.paper}'; btn.style.color = '${C.ink}'; btn.style.border = '1px solid ${C.rule}'; }
+    }
+  });
+}
+function openRecipeExport(id){
+  document.querySelectorAll('[data-recipe-body]').forEach(function(el){
+    el.style.display = (el.getAttribute('data-recipe-body')===id) ? 'block' : 'none';
+  });
+  var overlay = document.querySelector('[data-recipe-overlay]');
+  if (overlay) overlay.style.display = 'flex';
+}
+function closeRecipeExport(){
+  var overlay = document.querySelector('[data-recipe-overlay]');
+  if (overlay) overlay.style.display = 'none';
+}
+function openMonthExport(id){
+  document.querySelectorAll('[data-month-body]').forEach(function(el){
+    el.style.display = (el.getAttribute('data-month-body')===id) ? 'block' : 'none';
+  });
+  var overlay = document.querySelector('[data-month-overlay]');
+  if (overlay) overlay.style.display = 'flex';
+  openWeekExportReset();
+}
+function closeMonthExport(){
+  var overlay = document.querySelector('[data-month-overlay]');
+  if (overlay) overlay.style.display = 'none';
+  openWeekExportReset();
+}
+function openWeekExport(id){
+  document.querySelectorAll('[data-week-list]').forEach(function(el){ el.style.display = 'none'; });
+  document.querySelectorAll('[data-week-body]').forEach(function(el){
+    el.style.display = (el.getAttribute('data-week-body')===id) ? 'block' : 'none';
+  });
+}
+function openWeekExportReset(){
+  document.querySelectorAll('[data-week-list]').forEach(function(el){ el.style.display = ''; });
+  document.querySelectorAll('[data-week-body]').forEach(function(el){ el.style.display = 'none'; });
+}
+// A goal row shows "done" only for TODAY's real date — same daily-habit
+// semantics as the live app (checkedSet is keyed by today's date there
+// too), not a one-time-forever checkbox. Uses the browser's actual current
+// date at the moment this runs, not whatever date the file happened to be
+// downloaded on, so re-opening the same file a week later still behaves
+// correctly instead of being frozen at download time.
+function clpSetGoalVisual(el, done){
+  var doneIcon = el.querySelector('[data-goal-icon-done]');
+  var undoneIcon = el.querySelector('[data-goal-icon-undone]');
+  var text = el.querySelector('[data-goal-text]');
+  if (doneIcon) doneIcon.style.display = done ? 'inline-flex' : 'none';
+  if (undoneIcon) undoneIcon.style.display = done ? 'none' : 'inline-flex';
+  if (text) { text.style.textDecoration = done ? 'line-through' : 'none'; text.style.color = done ? '${C.muted}' : '${C.ink}'; }
+}
+function clpSetText(sel, val){ var el = document.querySelector(sel); if (el) el.textContent = val; }
+
+// Recomputes every number in "Track your progress" (stat cards + one ring
+// per month) and every week tile's "X/Y accomplished" straight from the
+// current checkin list — the exact same derivation the live React page
+// does — so a toggle anywhere in the downloaded file is reflected
+// everywhere else in that same file, not just on the row that was clicked.
+function renderProgressExport(){
+  var list = clpGetCheckins();
+  var dateSet = {};
+  list.forEach(function(c){ dateSet[c.checkin_date] = true; });
+  var streak = 0;
+  var cursor = clpTodayISO();
+  if (!dateSet[cursor]) cursor = clpShiftISO(cursor, -1);
+  while (dateSet[cursor]) { streak++; cursor = clpShiftISO(cursor, -1); }
+  var totalDaysLogged = Object.keys(dateSet).length;
+  var doneKeySet = {};
+  list.forEach(function(c){ doneKeySet[c.week_number + ':' + c.action_index] = true; });
+  var goalsDone = Object.keys(doneKeySet).length;
+  var totalActionsInPlan = 0;
+  CLP_MONTHS.forEach(function(m){ m.weeks.forEach(function(w){ totalActionsInPlan += w.totalActions; }); });
+
+  var bestPct = -1, bestLabel = '';
+  CLP_MONTHS.forEach(function(m){
+    var total = 0, done = 0;
+    m.weeks.forEach(function(w){
+      total += w.totalActions;
+      var wDone = 0;
+      for (var i = 0; i < w.totalActions; i++) { if (doneKeySet[w.week_number + ':' + i]) wDone++; }
+      done += wDone;
+      var wEl = document.querySelector('[data-week-progress="' + w.week_number + '"]');
+      if (wEl) wEl.textContent = wDone + '/' + w.totalActions + ' accomplished';
+    });
+    var pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    var clamped = Math.max(0, Math.min(100, pct));
+    var circle = document.querySelector('[data-ring-circle="' + m.monthNumber + '"]');
+    if (circle) {
+      var r = parseFloat(circle.getAttribute('r'));
+      var c = 2 * Math.PI * r;
+      circle.style.strokeDasharray = c;
+      circle.style.strokeDashoffset = c - (clamped / 100) * c;
+      circle.style.stroke = clamped >= 70 ? '${C.green}' : clamped >= 35 ? '${C.accent}' : '${C.muted}';
+    }
+    clpSetText('[data-ring-pct="' + m.monthNumber + '"]', Math.round(clamped) + '%');
+    clpSetText('[data-ring-sub="' + m.monthNumber + '"]', done + '/' + total + ' goals');
+    if (done > 0 && pct > bestPct) { bestPct = pct; bestLabel = m.monthLabel; }
+  });
+
+  clpSetText('[data-stat="streak"]', streak);
+  clpSetText('[data-stat="days"]', totalDaysLogged);
+  clpSetText('[data-stat="goals"]', goalsDone + '/' + totalActionsInPlan);
+  if (bestPct >= 0) {
+    clpSetText('[data-stat="best"]', bestPct + '%');
+    clpSetText('[data-stat-label="best"]', 'best month · ' + bestLabel);
+  }
+  var emptyEl = document.querySelector('[data-track-empty]');
+  var contentEl = document.querySelector('[data-track-content]');
+  if (emptyEl) emptyEl.style.display = totalDaysLogged === 0 ? 'block' : 'none';
+  if (contentEl) contentEl.style.display = totalDaysLogged === 0 ? 'none' : 'block';
+}
+
+// Goal check-off in the downloaded file is a personal checklist for the
+// patient only — not shared with or visible to the coach. It persists to
+// localStorage (so it survives reopening the same file later, even
+// offline) and nowhere else; deliberately no network call back to the app.
+function toggleGoalExport(key, el){
+  var parts = key.split(':');
+  var week = parseInt(parts[0], 10), action = parseInt(parts[1], 10);
+  var dateStr = clpTodayISO();
+  var list = clpGetCheckins();
+  var idx = -1;
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].week_number === week && list[i].action_index === action && list[i].checkin_date === dateStr) { idx = i; break; }
+  }
+  var newDone;
+  if (idx >= 0) { list.splice(idx, 1); newDone = false; }
+  else { list.push({ week_number: week, action_index: action, checkin_date: dateStr }); newDone = true; }
+  clpSetCheckins(list);
+  clpSetGoalVisual(el, newDone);
+  renderProgressExport();
+}
+function initGoalsExport(){
+  var list = clpGetCheckins();
+  var todayStr = clpTodayISO();
+  document.querySelectorAll('[data-goal-toggle]').forEach(function(el){
+    var key = el.getAttribute('data-goal-toggle');
+    var parts = key.split(':');
+    var week = parseInt(parts[0], 10), action = parseInt(parts[1], 10);
+    var doneToday = list.some(function(c){ return c.week_number === week && c.action_index === action && c.checkin_date === todayStr; });
+    clpSetGoalVisual(el, doneToday);
+  });
+  renderProgressExport();
+}
+initGoalsExport();
+`
+}
+
+export default function DashboardClient({ roadmapId, patientId, data, initialCheckins, editable = false }: {
+  roadmapId: string
+  patientId?: string
+  data: GuideData
+  initialCheckins: Checkin[]
+  editable?: boolean
+}) {
+  const [checkins, setCheckins] = useState<Checkin[]>(initialCheckins)
+  const [activeMeal, setActiveMeal] = useState<MealType>('breakfast')
+  const [openRecipeId, setOpenRecipeId] = useState<string | null>(null)
+  const [openMonth, setOpenMonth] = useState<number | null>(null)
+  const [openWeek, setOpenWeek] = useState<number | null>(null)
+  const today = todayISO()
+
+  // Edit state — seeded once from `data` and only ever touched by the coach
+  // in `editable` mode. In read-only (patient-facing) mode these just mirror
+  // `data` untouched, so using them everywhere below (instead of branching
+  // every render on `editable`) is safe and keeps one rendering codepath.
+  const [coaches, setCoaches] = useState<{ id: string; full_name: string }[]>([])
+  const [goalLabel, setGoalLabel] = useState(data.goalLabel)
+  const [whyReflection, setWhyReflection] = useState(data.whyReflection)
+  const [coachQuote, setCoachQuote] = useState(data.coachQuote)
+  const [nutritionistId, setNutritionistId] = useState(data.coach?.id ?? '')
+  const [lifestyleText, setLifestyleText] = useState(data.roadmap.lifestyle_guidelines)
+  const [editWeeks, setEditWeeks] = useState<WeeklyPlan[]>(data.roadmap.weekly_schedule)
+  const [manualRecipes, setManualRecipes] = useState<Partial<Record<DayMealSlot, string>>>(data.manualRecipes || {})
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
+
+  useEffect(() => {
+    if (!editable) return
+    fetch('/api/nutritionists').then((r) => r.json()).then((j) => setCoaches(Array.isArray(j) ? j : []))
+  }, [editable])
+
+  function updateWeek(weekNumber: number, patch: Partial<WeeklyPlan>) {
+    setEditWeeks((prev) => prev.map((w) => (w.week_number === weekNumber ? { ...w, ...patch } : w)))
+  }
+
+  async function save() {
+    if (!patientId) return
+    setSaving(true)
+    setSaveError('')
+    try {
+      const [roadmapRes, patientRes] = await Promise.all([
+        fetch(`/api/roadmaps/${roadmapId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lifestyle_guidelines: lifestyleText,
+            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes },
+            weekly_schedule: editWeeks.map((w) => ({ ...w, actions: (w.actions || []).map((a) => a.trim()).filter(Boolean) })),
+          }),
+        }),
+        fetch(`/api/patients/${patientId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nutritionist_id: nutritionistId || null }),
+        }),
+      ])
+      if (!roadmapRes.ok || !patientRes.ok) {
+        const failed = !roadmapRes.ok ? await roadmapRes.json().catch(() => null) : await patientRes.json().catch(() => null)
+        setSaveError(failed?.error || 'Save failed — try again.')
+        return
+      }
+      setSaved(true); setTimeout(() => setSaved(false), 2000)
+    } catch {
+      setSaveError('Network error — try again.')
+    } finally { setSaving(false) }
+  }
+
+  const checkedSet = useMemo(
+    () => new Set(checkins.map((c) => `${c.week_number}:${c.action_index}:${c.checkin_date}`)),
+    [checkins]
+  )
+
+  async function toggle(weekNumber: number, actionIndex: number) {
+    const key = `${weekNumber}:${actionIndex}:${today}`
+    const wasChecked = checkedSet.has(key)
+    const revert = () => setCheckins((prev) => wasChecked
+      ? [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: today }]
+      : prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === today)))
+    // Optimistic update — reconciled below if the server didn't actually
+    // persist it; two rapid taps racing is an accepted edge case for a habit
+    // checklist, not worth blocking the UI over.
+    setCheckins((prev) => wasChecked
+      ? prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === today))
+      : [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: today }])
+    try {
+      // fetch() only rejects on network failure, not on a non-2xx response —
+      // a 500 (e.g. the checkins table not existing yet) would otherwise look
+      // identical to success and leave the checkbox stuck in the wrong state.
+      const r = await fetch(`/api/roadmaps/${roadmapId}/checkins`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ week_number: weekNumber, action_index: actionIndex, date: today }),
+      })
+      if (!r.ok) revert()
+    } catch {
+      revert()
+    }
+  }
+
+  const months = reshapeRoadmapIntoMonths(editWeeks).filter((m) => m.planned)
+  const parsedGuidelines = parseNutritionistGuidelines(data.roadmap.nutritionist_guidelines)
+  const lifestyleBullets = parseBullets(lifestyleText)
+  const firstName = data.patient?.full_name?.split(' ')[0] ?? 'there'
+  const coachFirst = data.coach?.full_name?.split(' ')[0] || 'your coach'
+
+  // Real adherence, not filler — every number below is derived straight from
+  // recorded check-ins (never invented). Per-month "adherence" is goals
+  // actually accomplished ÷ goals planned for that month — the same ratio
+  // each week block already shows ("3/3 accomplished") — not a days-logged
+  // ratio. A days-logged ratio looks identical across every month whenever
+  // a patient checks off a batch of goals from different months in one
+  // sitting (they'd all share today's date, so every month reads "1 day
+  // logged" even though completion differs a lot) — completion is the
+  // number that's actually supposed to differ month to month.
+  const progress = useMemo(() => {
+    const dateSet = new Set(checkins.map((c) => c.checkin_date))
+    const streak = (() => {
+      let n = 0
+      let cursor = dateSet.has(today) ? today : shiftDateISO(today, -1)
+      while (dateSet.has(cursor)) {
+        n++
+        cursor = shiftDateISO(cursor, -1)
+      }
+      return n
+    })()
+    const doneKeys = new Set(checkins.map((c) => `${c.week_number}:${c.action_index}`))
+    const totalActionsInPlan = months.reduce((n, m) => n + m.weeks.reduce((nn, w) => nn + (w.actions?.length ?? 0), 0), 0)
+    const goalsDone = doneKeys.size
+    const monthStats = months.map((m) => {
+      const totalActions = m.weeks.reduce((n, w) => n + (w.actions?.length ?? 0), 0)
+      const doneActions = m.weeks.reduce((n, w) => n + (w.actions ?? []).filter((_, i) => doneKeys.has(`${w.week_number}:${i}`)).length, 0)
+      const pct = totalActions > 0 ? Math.round((doneActions / totalActions) * 100) : 0
+      return { monthNumber: m.monthNumber, monthLabel: m.monthLabel, doneActions, totalActions, pct }
+    })
+    const bestMonth = monthStats.reduce<typeof monthStats[number] | null>((best, m) => (m.doneActions > 0 && m.pct > (best?.pct ?? -1) ? m : best), null)
+    return { streak, totalDaysLogged: dateSet.size, goalsDone, totalActionsInPlan, monthStats, bestMonth }
+  }, [checkins, months, today])
+
+  // Mirrors the PDF's image + recipe selection exactly (same functions, same
+  // "no real match beats a fabricated one" discipline) so the dashboard and
+  // PDF never show different pictures or different recipes for the same
+  // patient. One shared `used` set, matched in the same top-to-bottom order
+  // as the PDF sections, so the same photo doesn't repeat across sections.
+  const { heroImage, mealMatches, mealImages, superfoodImage, monthImages } = useMemo(() => {
+    const used = new Set<string>()
+    const hero = matchGuideImageDistinct(data.roadmap.lifestyle_guidelines, data.imageBank, used)
+    const parsed = parseNutritionistGuidelines(data.roadmap.nutritionist_guidelines)
+    const selection = selectRecipesForPatient(
+      { primaryConcern: data.patient.primary_concern || '', dietProtocol: parsed.dietProtocol },
+      data.recipeBank
+    )
+    const images = new Map<string, string | null>()
+    for (const meal of ['breakfast', 'lunch', 'dinner', 'snack'] as const) {
+      for (const m of selection[meal]) {
+        const img = matchGuideImageDistinct(`${m.recipe.name} ${m.recipe.tags.join(' ')}`, data.imageBank, used)
+        images.set(m.recipe.id, img?.image_url ?? null)
+      }
+    }
+    const superfood = matchGuideImageDistinct('superfood nutrition weekly pick seasonal', data.imageBank, used)
+    // One optional photo per month block — same "no real match beats a
+    // fabricated one" rule, so a month with nothing tag-matched just shows a
+    // plain icon tile instead of a forced/wrong picture.
+    const months = new Map<string, string | null>()
+    for (const m of reshapeRoadmapIntoMonths(data.roadmap.weekly_schedule).filter((mm) => mm.planned)) {
+      const query = m.weeks.map((w) => `${w.focus_theme} ${w.food_menu || ''}`).join(' ')
+      const img = matchGuideImageDistinct(query, data.imageBank, used)
+      months.set(String(m.monthNumber), img?.image_url ?? null)
+    }
+    return { heroImage: hero, mealMatches: selection, mealImages: images, superfoodImage: superfood, monthImages: months }
+  }, [data])
+
+  // Each of the 4 weekly recipe slots (Breakfast/Lunch/Dinner/Snacks)
+  // resolves to: the coach's explicit manual pick if they set one for that
+  // slot, otherwise the same auto-detected recipe already used elsewhere
+  // (tag/keyword matched against this patient's concern & diet notes) — a
+  // coach's explicit choice always wins over a guess.
+  const daySlots = DAY_MEAL_SLOTS.map((slot) => {
+    const manualId = manualRecipes[slot]
+    const manualRecipe = manualId ? data.recipeBank.find((r) => r.id === manualId) : undefined
+    if (manualRecipe) {
+      const img = matchGuideImageDistinct(`${manualRecipe.name} ${manualRecipe.tags.join(' ')}`, data.imageBank, new Set())
+      const match: RecipeMatch = { recipe: manualRecipe, why: `Picked by ${coachFirst} for your plan.` }
+      return { slot, match, image: img?.image_url ?? null }
+    }
+    const auto = mealMatches[slot]?.[0] ?? null
+    return { slot, match: auto, image: auto ? (mealImages.get(auto.recipe.id) ?? null) : null }
+  })
+
+  const allMatches = (() => {
+    const combined = [...mealMatches.breakfast, ...mealMatches.lunch, ...mealMatches.dinner, ...mealMatches.snack,
+      ...daySlots.map((d) => d.match).filter((m): m is RecipeMatch => !!m)]
+    return combined.filter((m, i) => combined.findIndex((x) => x.recipe.id === m.recipe.id) === i)
+  })()
+  const combinedImages = new Map(mealImages)
+  daySlots.forEach((d) => { if (d.match && d.image && !combinedImages.has(d.match.recipe.id)) combinedImages.set(d.match.recipe.id, d.image) })
+
+  // Downloads exactly what's rendered on screen — everything in this
+  // component is inline-styled (no external stylesheet to lose), so cloning
+  // the live DOM and wrapping it in a minimal document reproduces this page
+  // pixel-for-pixel as a standalone file, without maintaining a second
+  // "download" template that could drift from what the coach actually sees.
+  // The clone carries no React event listeners, so the meal tabs and recipe
+  // cards would otherwise be dead — plain onclick attributes + EXPORT_SCRIPT
+  // (operating on the same ids/data-attributes the live page uses) restore
+  // that interactivity in the standalone file.
+  function downloadDashboard() {
+    const root = document.getElementById('dashboard-export-root')
+    if (!root) return
+    const clone = root.cloneNode(true) as HTMLElement
+    clone.querySelectorAll('[data-no-export]').forEach((el) => el.remove())
+    clone.querySelectorAll('[data-meal-tab]').forEach((el) => {
+      el.setAttribute('onclick', `showPlateExport('${el.getAttribute('data-meal-tab')}')`)
+    })
+    clone.querySelectorAll('[data-recipe-trigger]').forEach((el) => {
+      el.setAttribute('onclick', `openRecipeExport('${el.getAttribute('data-recipe-trigger')}')`)
+    })
+    clone.querySelectorAll('[data-recipe-close]').forEach((el) => el.setAttribute('onclick', 'closeRecipeExport()'))
+    clone.querySelectorAll('[data-recipe-overlay]').forEach((el) => el.setAttribute('onclick', 'if(event.target===this)closeRecipeExport()'))
+    clone.querySelectorAll('[data-month-trigger]').forEach((el) => {
+      el.setAttribute('onclick', `openMonthExport('${el.getAttribute('data-month-trigger')}')`)
+    })
+    clone.querySelectorAll('[data-month-close]').forEach((el) => el.setAttribute('onclick', 'closeMonthExport()'))
+    clone.querySelectorAll('[data-month-overlay]').forEach((el) => el.setAttribute('onclick', 'if(event.target===this)closeMonthExport()'))
+    clone.querySelectorAll('[data-week-trigger]').forEach((el) => {
+      el.setAttribute('onclick', `openWeekExport('${el.getAttribute('data-week-trigger')}')`)
+    })
+    clone.querySelectorAll('[data-week-back]').forEach((el) => el.setAttribute('onclick', 'openWeekExportReset()'))
+    clone.querySelectorAll('[data-goal-toggle]').forEach((el) => {
+      el.setAttribute('onclick', `toggleGoalExport('${el.getAttribute('data-goal-toggle')}', this)`)
+    })
+    // The TOC bar's sticky offset (and every section's scroll-margin-top)
+    // are tuned to sit below the app's own 60px site header — the
+    // standalone export has no such header, so left as-is the bar would
+    // float with a 60px gap above it and overlap the content beneath.
+    clone.querySelectorAll('[data-toc-bar]').forEach((el) => (el as HTMLElement).style.top = '0px')
+    clone.querySelectorAll('[style*="scroll-margin-top"]').forEach((el) => (el as HTMLElement).style.scrollMarginTop = '54px')
+    const monthsData: MonthExportData[] = months.map((m) => ({
+      monthNumber: m.monthNumber,
+      monthLabel: m.monthLabel,
+      weeks: m.weeks.map((w) => ({ week_number: w.week_number, totalActions: w.actions?.length ?? 0 })),
+    }))
+    const title = (data.patient?.full_name || 'Your') + "'s Plan — Clinic Living Plus"
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${title.replace(/</g, '&lt;')}</title>
+<style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased;}</style>
+</head>
+<body>${clone.outerHTML}
+<script>${buildExportScript(roadmapId, checkins, monthsData)}</script>
+</body>
+</html>`
+    const blob = new Blob([html], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${(data.patient?.full_name || 'client').replace(/\s+/g, '-')}-plan.html`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div id="dashboard-export-root" style={{ background: C.bg, minHeight: '100vh' }}>
+      <style>{`html{scroll-behavior:smooth;}`}</style>
+      {editable && <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>}
+      {/* Table of contents — pinned to the top, same 15 sections as the PDF.
+          Plain anchor links (no JS) so this works in the downloaded static
+          export too, not just the live page. */}
+      <div data-toc-bar style={{ position: 'sticky', top: 60, zIndex: 40, background: C.paper, borderBottom: `1px solid ${C.rule}`, overflowX: 'auto' }}>
+        <div style={{ maxWidth: 1180, margin: '0 auto', display: 'flex', gap: 2, padding: '4px 16px', whiteSpace: 'nowrap' }}>
+          {TOC_ITEMS.map((item, i) => (
+            <a key={`${item.id}-${i}`} href={`#${item.id}`}
+              style={{ fontSize: 11.5, fontWeight: 600, color: C.inkSoft, textDecoration: 'none', padding: '10px 9px', flexShrink: 0 }}>
+              {item.label}
+            </a>
+          ))}
+        </div>
+      </div>
+      {allMatches.length > 0 && (
+        <div data-recipe-overlay onClick={() => setOpenRecipeId(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(44,36,24,0.55)', display: openRecipeId ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 110 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ position: 'relative', background: C.paper, borderRadius: 16, padding: '24px 26px', maxWidth: 460, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
+            <button data-recipe-close onClick={() => setOpenRecipeId(null)}
+              style={{ position: 'absolute', top: 18, right: 18, background: 'none', border: 'none', cursor: 'pointer', color: C.muted }}><X size={18} /></button>
+            {allMatches.map((m) => (
+              <div key={m.recipe.id} data-recipe-body={m.recipe.id} style={{ display: openRecipeId === m.recipe.id ? 'block' : 'none' }}>
+                <RecipeBody match={m} imageUrl={combinedImages.get(m.recipe.id) ?? null} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {!editable && months.length > 0 && (
+        <div data-month-overlay onClick={() => { setOpenMonth(null); setOpenWeek(null) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(44,36,24,0.55)', display: openMonth != null ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 100 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ position: 'relative', background: C.paper, borderRadius: 16, padding: '24px 26px', maxWidth: 560, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
+            <button data-month-close onClick={() => { setOpenMonth(null); setOpenWeek(null) }}
+              style={{ position: 'absolute', top: 18, right: 18, background: 'none', border: 'none', cursor: 'pointer', color: C.muted }}><X size={18} /></button>
+            {months.map((m) => (
+              <div key={m.monthNumber} data-month-body={m.monthNumber} style={{ display: openMonth === m.monthNumber ? 'block' : 'none' }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: C.ink, paddingRight: 28, marginBottom: 4 }}>{m.monthLabel}</div>
+                <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 16 }}>Weeks {m.weekStart}–{m.weekEnd}</div>
+
+                {/* Week list — 4 compact blocks; tap one for its detail below */}
+                <div data-week-list style={{ display: openWeek == null ? 'block' : 'none' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+                    {m.weeks.map((w: WeeklyPlan) => {
+                      const total = w.actions?.length ?? 0
+                      const doneCount = (w.actions ?? []).filter((_, i) => checkedSet.has(`${w.week_number}:${i}:${today}`)).length
+                      return (
+                        <button key={w.week_number} data-week-trigger={w.week_number} onClick={() => setOpenWeek(w.week_number)}
+                          style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 10, border: `1px solid ${C.rule}`, background: C.bg, cursor: 'pointer' }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>Week {w.week_number}</div>
+                          <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{w.focus_theme}</div>
+                          {total > 0 && <div data-week-progress={w.week_number} style={{ fontSize: 11, color: C.accent, marginTop: 6, fontWeight: 600 }}>{doneCount}/{total} accomplished</div>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Week detail — Sunday through Saturday, each showing the
+                    week's goals (same content every day; goals aren't
+                    tracked per calendar day in this app), then one shared
+                    Recipes section for the whole week — not per day. */}
+                {m.weeks.map((w: WeeklyPlan) => (
+                  <div key={w.week_number} data-week-body={w.week_number} style={{ display: openWeek === w.week_number ? 'block' : 'none' }}>
+                    <button data-week-back onClick={() => setOpenWeek(null)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: C.accent, fontSize: 12.5, fontWeight: 700, padding: 0, marginBottom: 14 }}>
+                      ← Back to weeks
+                    </button>
+
+                    <div style={{ ...weekBoxLabel, marginBottom: 10 }}>Sunday to Saturday — this week&apos;s goals</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                      {DAY_LABELS.map((day) => (
+                        <div key={day} style={{ background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px' }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>{day}</div>
+                          <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, marginBottom: 2 }}>Macro goal</div>
+                          <div style={{ fontSize: 13, color: C.ink, marginBottom: 8 }}>{w.focus_theme}</div>
+                          {(w.actions?.length ?? 0) > 0 && (
+                            <>
+                              <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, marginBottom: 4 }}>Micro goals</div>
+                              {(w.actions ?? []).map((action, actionIndex) => (
+                                <GoalRow key={actionIndex} weekNumber={w.week_number} actionIndex={actionIndex} action={action}
+                                  checked={checkedSet.has(`${w.week_number}:${actionIndex}:${today}`)}
+                                  onToggle={() => toggle(w.week_number, actionIndex)} />
+                              ))}
+                            </>
+                          )}
+                          {w.milestone?.trim() && (
+                            <>
+                              <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, marginTop: 6, marginBottom: 2 }}>Success looks like</div>
+                              <div style={{ fontSize: 13, color: C.ink }}>{w.milestone}</div>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {w.food_menu?.trim() && (
+                      <div style={{ background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', marginBottom: 20 }}>
+                        <div style={weekBoxLabel}>This week&apos;s food menu</div>
+                        <div style={{ fontSize: 13, color: C.inkSoft, lineHeight: 1.55 }}>{w.food_menu}</div>
+                      </div>
+                    )}
+
+                    {/* Recipes — once per week, not per day (recipes aren't
+                        tracked per-day, same as the goals above). */}
+                    <div style={weekBoxLabel}>Recipes for the week</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
+                      {daySlots.map(({ slot, match, image }) => (
+                        match ? (
+                          <button key={slot} data-recipe-trigger={match.recipe.id} onClick={() => setOpenRecipeId(match.recipe.id)}
+                            style={{ textAlign: 'left', padding: 0, borderRadius: 12, border: `1px solid ${C.rule}`, background: C.bg, overflow: 'hidden', cursor: 'pointer' }}>
+                            {image ? (
+                              <img src={image} alt={match.recipe.name} style={{ width: '100%', height: 72, objectFit: 'cover', display: 'block' }} />
+                            ) : (
+                              <div style={{ width: '100%', height: 72, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChefHat size={20} color={C.accent} /></div>
+                            )}
+                            <div style={{ padding: '8px 10px' }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{SLOT_LABELS[slot]}</div>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, marginTop: 2 }}>{match.recipe.name}</div>
+                            </div>
+                          </button>
+                        ) : (
+                          <div key={slot} style={{ padding: '10px 10px', borderRadius: 12, border: `1px dashed ${C.rule}` }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{SLOT_LABELS[slot]}</div>
+                            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Not detected yet — {coachFirst} will add one.</div>
+                          </div>
+                        )
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 16 }}>Tap a goal each day you complete it — checking today ({today}) tracks it for your coach to review.</div>
+          </div>
+        </div>
+      )}
+      <div style={{ maxWidth: 1180, margin: '0 auto', padding: '32px 24px 64px' }}>
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 24, background: C.accent, color: C.paper, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px', fontWeight: 700 }}>CLP</div>
+          <div style={{ fontSize: 11, letterSpacing: 3, color: C.muted }}>CLINIC LIVING PLUS</div>
+          <div style={{ fontSize: 24, color: C.ink, marginTop: 8, fontWeight: 700 }}>Hi {firstName}, here&apos;s your plan</div>
+          {editable ? (
+            <div style={{ maxWidth: 480, marginLeft: 'auto', marginRight: 'auto', marginTop: 10, textAlign: 'left' }}>
+              <div style={editLabelStyle}>Goal (shown at the top)</div>
+              <input style={editInputStyle} value={goalLabel} onChange={(e) => setGoalLabel(e.target.value)} placeholder="e.g. Steady energy, no more 4pm crashes" />
+            </div>
+          ) : (
+            <div style={{ fontSize: 13.5, color: C.inkSoft, marginTop: 6, maxWidth: 480, marginLeft: 'auto', marginRight: 'auto' }}>{goalLabel}</div>
+          )}
+          {editable ? (
+            <a href={`/dashboard/${roadmapId}`} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 16, padding: '10px 20px', borderRadius: 10, border: `1px solid ${C.rule}`, background: C.paper, color: C.ink, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+              <ExternalLink size={15} /> Preview as patient
+            </a>
+          ) : (
+            <button onClick={downloadDashboard} data-no-export
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 16, padding: '10px 20px', borderRadius: 10, border: 'none', background: C.accent, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+              <Download size={15} /> Download your plan
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 0 }}>
+          {/* Founder's note — same letter as the PDF, personalized with name + goal */}
+          <div id="founder" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div style={sectionTitleStyle}>Founder&apos;s note</div>
+            <p style={bulletStyle}>{firstName},</p>
+            <p style={bulletStyle}>There are eleven people in this building who already know something about you.</p>
+            <p style={bulletStyle}>Not just your name — though it&apos;s already underlined twice in your file. Someone has read the notes from your consult call. Someone already knows which foods actually excite you, the dish you&apos;d genuinely look forward to, not just tolerate. And if you&apos;ve already walked through our doors before today, one of us probably remembers exactly where you sat.</p>
+            <p style={bulletStyle}>Your wellness coach said a small, quiet word to herself before she uploaded this document — the kind of thing she does for every plan, whether or not anyone ever finds out. Your doctor has already opened a new tab on her computer, right next to your history. It&apos;s empty for now. She&apos;s waiting to fill it with everything you&apos;re about to do.</p>
+            <p style={bulletStyle}>Here&apos;s the part I want you to actually believe: we are genuinely excited for you. Not in the polite, clinical, thank-you-for-choosing-us way. In the way you&apos;d be excited watching someone you love finally get somewhere they&apos;ve been trying to reach for years. Every small win on the way to {asPhrase(goalLabel.toLowerCase())} — the first night you sleep straight through, the first craving that doesn&apos;t win, the first lab report that makes your doctor sit up a little straighter — somebody here is going to see it and quietly punch the air.</p>
+            <p style={bulletStyle}>None of that is a metaphor. It&apos;s Tuesday-morning-huddle real.</p>
+            <p style={bulletStyle}>A year before I started Clinic Living Plus, I was the patient across the table, asking a question and getting an answer that didn&apos;t hold up when I looked closer. That gap — between what people are told and what&apos;s actually true about their own body — is the entire reason this place exists.</p>
+            <p style={bulletStyle}>So here&apos;s what I can promise: this document was not templated. A coach spent ninety real minutes listening to your actual life before a single recipe in here was chosen. What happens next is mostly on you. What happens around you — the noticing, the small adjustments, the quiet cheering at every step — that part has already begun.</p>
+            <p style={bulletStyle}>Come find us when something in here surprises you. We&apos;d love to hear it.</p>
+            <div style={{ marginTop: 14, fontSize: 13, fontWeight: 700, color: C.ink }}>Roshni Sanghvi</div>
+            <div style={{ fontSize: 11, color: C.muted, letterSpacing: '0.04em' }}>FOUNDER, CLINIC LIVING PLUS</div>
+          </div>
+
+          {/* Coach */}
+          {(data.coach || editable) && (
+            <div id="coach" style={{ ...cardStyle, display: 'flex', alignItems: 'center', gap: 16, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+              <div style={{ width: 56, height: 56, borderRadius: 28, flexShrink: 0, background: data.coach?.photo_url ? `url(${data.coach.photo_url}) center/cover` : C.accentSoft, border: `1px solid ${C.rule}` }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {editable ? (
+                  <>
+                    <div style={editLabelStyle}>Coach</div>
+                    <select style={editInputStyle} value={nutritionistId} onChange={(e) => setNutritionistId(e.target.value)}>
+                      <option value="">— Select a coach —</option>
+                      {coaches.map((c) => <option key={c.id} value={c.id}>{c.full_name}</option>)}
+                    </select>
+                    <div style={{ fontSize: 11, color: C.muted, margin: '5px 0 10px' }}>Photo, designation and bio come from the coach&apos;s own profile — updates after you save.</div>
+                    <textarea style={{ ...editInputStyle, resize: 'vertical' as const, lineHeight: 1.5, fontStyle: 'italic' }} rows={2}
+                      value={coachQuote} onChange={(e) => setCoachQuote(e.target.value)}
+                      placeholder={`Personal callback quote, e.g. "${firstName} — I remember what you said about..." — or leave blank.`} />
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>{data.coach?.full_name}</div>
+                    <div style={{ fontSize: 12, color: C.muted }}>{data.coach?.designation}</div>
+                    {coachQuote && <div style={{ fontSize: 13, color: C.accent, fontStyle: 'italic', marginTop: 6 }}>&ldquo;{coachQuote}&rdquo;</div>}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* How to use this guide + Your why — one PDF page, kept together here too */}
+          <div id="howto" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div style={sectionTitleStyle}>How to use this guide</div>
+            <p style={bulletStyle}>Read once, keep it handy. Your roadmap and coach intro won&apos;t change — everything else is designed to be flipped back to often.</p>
+            <p style={bulletStyle}>Recipes and weekly targets refresh as your plan progresses. You&apos;ll always get the newest version from your coach — no need to reprint the whole guide.</p>
+            <p style={bulletStyle}>Never guess — ask. If something feels off or unclear, reach your coach before improvising. That&apos;s what they&apos;re there for.</p>
+            <div id="why" style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.rule}`, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+              <div style={{ ...sectionTitleStyle, fontSize: 15, marginBottom: 10 }}>Your why</div>
+              {editable ? (
+                <textarea style={{ ...editInputStyle, resize: 'vertical' as const, lineHeight: 1.5 }} rows={3}
+                  value={whyReflection} onChange={(e) => setWhyReflection(e.target.value)}
+                  placeholder={`${firstName}, from what you shared with us...`} />
+              ) : whyReflection ? (
+                <p style={bulletStyle}>{firstName}, from what you shared with us: {whyReflection}</p>
+              ) : (
+                <p style={{ ...bulletStyle, color: C.muted }}>Not filled in yet.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Roadmap — a compact block per month; tap one to pop open its 4
+              weeks (same checklist content as before, just not all on screen
+              at once). Edit mode keeps the old always-expanded editor below,
+              since the coach needs to see every field to edit it. */}
+          <div id="roadmap" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div style={sectionTitleStyle}><MapPin size={18} color={C.accent} /> Your roadmap</div>
+            {months.length === 0 && <div style={{ fontSize: 13.5, color: C.muted }}>Not planned yet — check back once your coach generates your roadmap.</div>}
+            {!editable && months.length > 0 && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14 }}>
+                  {months.map((m) => {
+                    const img = monthImages.get(String(m.monthNumber))
+                    const goalCount = m.weeks.reduce((n, w) => n + (w.actions?.length ?? 0), 0)
+                    return (
+                      <button key={m.monthNumber} data-month-trigger={m.monthNumber} onClick={() => { setOpenMonth(m.monthNumber); setOpenWeek(null) }}
+                        style={{ textAlign: 'left', padding: 0, border: `1px solid ${C.rule}`, borderRadius: 12, overflow: 'hidden', background: C.bg, cursor: 'pointer' }}>
+                        {img ? (
+                          <img src={img} alt={m.monthLabel} style={{ width: '100%', height: 84, objectFit: 'cover', display: 'block' }} />
+                        ) : (
+                          <div style={{ width: '100%', height: 84, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <MapPin size={22} color={C.accent} />
+                          </div>
+                        )}
+                        <div style={{ padding: '10px 12px' }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{m.monthLabel}</div>
+                          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Weeks {m.weekStart}–{m.weekEnd} · {goalCount} goals</div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+                <div style={{ fontSize: 11.5, color: C.muted, marginTop: 12 }}>Tap a month to see its weekly goals and check off what you&apos;ve done.</div>
+              </>
+            )}
+            {editable && (
+              <div style={{ ...cardStyle, background: C.bg, marginBottom: 16 }}>
+                <div style={sectionTitleStyle}>Recipes for the week</div>
+                <p style={{ ...bulletStyle, color: C.muted, marginBottom: 14 }}>
+                  Auto-detected from the recipe bank by tag/keyword match against this patient&apos;s concern and diet notes — same set shown once per week. Pick a recipe below only where you want to override the auto-match, or where nothing was detected.
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                  {DAY_MEAL_SLOTS.map((slot) => {
+                    const auto = mealMatches[slot]?.[0]
+                    const options = data.recipeBank.filter((r) => r.meal_type === slot)
+                    return (
+                      <div key={slot}>
+                        <div style={editLabelStyle}>{SLOT_LABELS[slot]}</div>
+                        <select style={editInputStyle} value={manualRecipes[slot] || ''} onChange={(e) => setManualRecipes((prev) => ({ ...prev, [slot]: e.target.value || undefined }))}>
+                          <option value="">{auto ? `— Auto-detected: ${auto.recipe.name} —` : '— Nothing auto-detected —'}</option>
+                          {options.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                        </select>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+            {editable && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+                {months.map((m) => (
+                  <div key={m.monthNumber}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, marginBottom: 10 }}>{m.monthLabel} · Weeks {m.weekStart}–{m.weekEnd}</div>
+                    {m.weeks.map((w: WeeklyPlan) => (
+                      <div key={w.week_number} style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', marginBottom: 10, background: C.bg }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, marginBottom: 7 }}>Week {w.week_number}</div>
+                        <div style={{ marginBottom: 7 }}>
+                          <div style={editLabelStyle}>Focus / macro goal</div>
+                          <input style={editInputStyle} value={w.focus_theme || ''} onChange={(e) => updateWeek(w.week_number, { focus_theme: e.target.value })} />
+                        </div>
+                        <div style={{ marginBottom: 7 }}>
+                          <div style={editLabelStyle}>Micro goals (one per line)</div>
+                          <textarea style={{ ...editInputStyle, resize: 'vertical' as const }} rows={3}
+                            value={(w.actions || []).join('\n')} onChange={(e) => updateWeek(w.week_number, { actions: e.target.value.split('\n') })} />
+                        </div>
+                        <div style={{ marginBottom: 7 }}>
+                          <div style={editLabelStyle}>Success looks like</div>
+                          <input style={editInputStyle} value={w.milestone || ''} onChange={(e) => updateWeek(w.week_number, { milestone: e.target.value })} />
+                        </div>
+                        <div>
+                          <div style={editLabelStyle}>Food menu for this week</div>
+                          <textarea style={{ ...editInputStyle, resize: 'vertical' as const }} rows={3}
+                            value={w.food_menu || ''} placeholder="Type or paste this week's food menu…"
+                            onChange={(e) => updateWeek(w.week_number, { food_menu: e.target.value })} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Lifestyle guidelines */}
+          {(editable || lifestyleBullets.length > 0) && (
+            <div id="lifestyle" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+              <div style={sectionTitleStyle}><HeartPulse size={18} color={C.accent} /> Lifestyle guidelines</div>
+              {heroImage && <img src={heroImage.image_url} alt={heroImage.label} style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 10, marginBottom: 14 }} />}
+              {editable ? (
+                <textarea style={{ ...editInputStyle, resize: 'vertical' as const, lineHeight: 1.6 }} rows={6}
+                  value={lifestyleText} onChange={(e) => setLifestyleText(e.target.value)}
+                  placeholder="• One lifestyle change per line, tied to something specific in their case" />
+              ) : (
+                lifestyleBullets.map((b, i) => <p key={i} style={bulletStyle}>• {b}</p>)
+              )}
+            </div>
+          )}
+
+          {/* Nutrition guidelines — Power Plates, tabbed by meal (also covers
+              "This week's recipes" — the PDF's separate recipe pages live
+              inside each meal tab here instead) */}
+          <div id="nutrition" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 6 }}>
+              <div style={sectionTitleStyle}><Utensils size={18} color={C.accent} /> Your power plates</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {(['breakfast', 'lunch', 'dinner'] as MealType[]).map((meal) => (
+                  <button key={meal} data-meal-tab={meal} onClick={() => setActiveMeal(meal)}
+                    style={{
+                      padding: '8px 16px', borderRadius: 20, border: activeMeal === meal ? 'none' : `1px solid ${C.rule}`,
+                      background: activeMeal === meal ? C.greenDeep : C.paper, color: activeMeal === meal ? '#fff' : C.ink,
+                      fontSize: 12.5, fontWeight: 700, cursor: 'pointer', textTransform: 'capitalize',
+                    }}>
+                    {meal}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {(['breakfast', 'lunch', 'dinner'] as MealType[]).map((meal) => {
+              const plate = FOOD_PLATES[meal]
+              const recipes = mealMatches[meal]
+              return (
+                <div key={meal} id={`pp-${meal}`} style={{ display: activeMeal === meal ? '' : 'none' }}>
+                  <div style={{ fontSize: 12, color: C.muted, marginBottom: 16 }}>{plate.ratios}</div>
+                  <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                    <MealWheel categories={plate.columns.map((c) => c.head)} label={meal} />
+                    <div style={{ flex: '1 1 300px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {plate.columns.map((col, i) => (
+                        <div key={col.head}>
+                          <div style={{ fontSize: 10.5, fontWeight: 700, color: CATEGORY_COLORS[i % CATEGORY_COLORS.length], textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>{col.head}</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {col.items.map((item) => (
+                              <span key={item} style={{ fontSize: 12, color: C.ink, background: `${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}22`, border: `1px solid ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}55`, borderRadius: 14, padding: '4px 11px' }}>{item}</span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {recipes.length > 0 ? (
+                    <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.rule}` }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Recipes for {meal} — picked for your plan</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {recipes.map((m) => {
+                          const img = mealImages.get(m.recipe.id)
+                          return (
+                            <button key={m.recipe.id} data-recipe-trigger={m.recipe.id} onClick={() => setOpenRecipeId(m.recipe.id)}
+                              style={{ display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', padding: '10px 12px', borderRadius: 12, border: `1px solid ${C.rule}`, background: C.bg, cursor: 'pointer' }}>
+                              {img ? (
+                                <img src={img} alt={m.recipe.name} style={{ width: 52, height: 52, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+                              ) : (
+                                <div style={{ width: 52, height: 52, borderRadius: 8, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><ChefHat size={20} color={C.accent} /></div>
+                              )}
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{m.recipe.name}{m.recipe.protein_label ? ` · ${m.recipe.protein_label}` : ''}</div>
+                                <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.why}</div>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.rule}`, fontSize: 12.5, color: C.muted }}>
+                      Nothing in the recipe bank is tagged to match your specific concern or diet notes yet for {meal} — {coachFirst} will hand you a recipe fresh for this week instead.
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Superfood of the week */}
+          <div id="superfood" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div style={sectionTitleStyle}><Sparkles size={18} color={C.accent} /> Superfood of the week</div>
+            {superfoodImage && <img src={superfoodImage.image_url} alt={superfoodImage.label} style={{ width: '100%', height: 150, objectFit: 'cover', borderRadius: 10, marginBottom: 12 }} />}
+            <p style={bulletStyle}>{coachFirst} picks this fresh each week around what&apos;s in season and what&apos;s actually useful for where you are right now — rather than a fixed pick that goes stale.</p>
+            <div style={{ fontSize: 11.5, color: C.muted }}>You&apos;ll get this alongside your recipes each week, with a short note on why it was chosen for you specifically.</div>
+          </div>
+
+          {/* Supplements */}
+          <div id="supplements" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div style={sectionTitleStyle}><Pill size={18} color={C.accent} /> Your supplement plan</div>
+            {parsedGuidelines.supplements.length > 0 ? (
+              parsedGuidelines.supplements.map((s, i) => <p key={i} style={bulletStyle}>• {s}</p>)
+            ) : (
+              <p style={bulletStyle}>No supplements on file yet — {coachFirst} will add these once your plan calls for them.</p>
+            )}
+            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8 }}>Don&apos;t start, stop, or change a dose without confirming with {coachFirst} first.</div>
+          </div>
+
+          {/* Grocery list */}
+          <div id="grocery" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div style={sectionTitleStyle}><ShoppingCart size={18} color={C.accent} /> Your shopping list</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
+              {GROCERY_CATEGORIES.map((cat) => (
+                <div key={cat.head}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 4 }}>{cat.head}</div>
+                  {cat.items.map((item) => <div key={item} style={{ fontSize: 12, color: C.inkSoft, padding: '2px 0' }}>☐ {item}</div>)}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Services */}
+          <div id="services" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div style={sectionTitleStyle}><Star size={18} color={C.accent} /> What&apos;s included in your care</div>
+            <p style={bulletStyle}>Everything you&apos;re currently enrolled in, plus what&apos;s available if you want more support.</p>
+            <div style={{ fontSize: 12.5, color: C.inkSoft, background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, padding: '10px 12px' }}>{coachFirst} will walk you through what&apos;s included in your plan and any optional add-ons during your next session.</div>
+          </div>
+
+          {/* Track your progress — real data, not a filler table; always
+              reachable from the top nav even before any check-ins exist.
+              Both the empty-state message and the real content are always
+              in the DOM (visibility toggled, never conditionally unmounted)
+              so the downloaded export's renderProgressExport() has stable
+              elements to update after every toggle, even starting from a
+              fresh file with zero check-ins. */}
+          <div id="track" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div style={sectionTitleStyle}><CheckCircle2 size={18} color={C.accent} /> Track your progress</div>
+            <p data-track-empty style={{ ...bulletStyle, color: C.muted, display: progress.totalDaysLogged === 0 ? 'block' : 'none' }}>
+              No check-ins logged yet — tap a goal in your roadmap above each day you complete it, and your progress will show up here.
+            </p>
+            <div data-track-content style={{ display: progress.totalDaysLogged === 0 ? 'none' : 'block' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 22 }}>
+                <StatCard dataStat="streak" icon={<Flame size={14} color={C.accent} />} value={progress.streak} label="day streak" color={C.accent} />
+                <StatCard dataStat="days" icon={<CalendarCheck size={14} color={C.green} />} value={progress.totalDaysLogged} label="days logged, total" color={C.green} />
+                <StatCard dataStat="goals" icon={<Target size={14} color={C.greenDeep} />} value={`${progress.goalsDone}/${progress.totalActionsInPlan}`} label="goals accomplished" color={C.greenDeep} />
+                <StatCard dataStat="best" dataStatLabel="best" icon={<TrendingUp size={14} color={C.accent} />}
+                  value={progress.bestMonth ? `${progress.bestMonth.pct}%` : '—'}
+                  label={progress.bestMonth ? `best month · ${progress.bestMonth.monthLabel}` : 'best month'} color={C.accent} />
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 12 }}>Goals completed by month</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18 }}>
+                {progress.monthStats.map((m) => (
+                  <ProgressRing key={m.monthNumber} monthNumber={m.monthNumber} pct={m.pct} label={m.monthLabel} sublabel={`${m.doneActions}/${m.totalActions} goals`}
+                    color={m.pct >= 70 ? C.green : m.pct >= 35 ? C.accent : C.muted} />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* When to reach us */}
+          <div id="reach" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div style={sectionTitleStyle}><Phone size={18} color={C.accent} /> When to reach us</div>
+            {parsedGuidelines.redFlags.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>Same day — specific to your plan</div>
+                {parsedGuidelines.redFlags.map((f, i) => <p key={i} style={bulletStyle}>• {f}</p>)}
+              </div>
+            )}
+            <p style={bulletStyle}>A question about a supplement, food, or your plan — message {coachFirst} directly{data.coach?.email ? ` (${data.coach.email})` : ''}.</p>
+            <p style={bulletStyle}>Emergency (chest pain, difficulty breathing, fainting)? Go to your nearest emergency room — this dashboard and your coach aren&apos;t equipped for emergencies.</p>
+          </div>
+
+          {/* FAQ */}
+          <div id="faq" style={{ ...cardStyle, marginBottom: 0, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div style={sectionTitleStyle}><HelpCircle size={18} color={C.accent} /> Questions we hear most</div>
+            {[
+              ['What if I can’t finish everything on my plate exactly as shown?', 'Getting the food groups roughly right matters far more than hitting exact portions.'],
+              ['What if I miss a few days on my habit tracker?', 'Log what actually happened, not what you wish had happened — an honest gap tells your coach more than a perfect-looking week.'],
+              ['Can I eat something that’s not on the lists?', 'Yes — the lists are what to lean on, not a ban on everything else. Ask your coach if unsure.'],
+            ].map(([q, a], i) => (
+              <div key={i} style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 2 }}>{q}</div>
+                <div style={{ fontSize: 12.5, color: C.inkSoft }}>{a}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {editable && (
+          <div style={{ position: 'sticky', bottom: 16, marginTop: 20, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, background: C.paper, border: `1px solid ${C.rule}`, borderRadius: 12, padding: '12px 16px', boxShadow: '0 4px 16px rgba(44,36,24,0.12)' }}>
+            {saveError && <span style={{ fontSize: 12.5, color: '#b4462f' }}>{saveError}</span>}
+            <button onClick={save} disabled={saving}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 18px', borderRadius: 9, border: 'none', background: saved ? C.green : C.accent, color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer' }}>
+              {saving ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : saved ? <Check size={14} /> : <Save size={14} />}
+              {saving ? 'Saving…' : saved ? 'Saved' : 'Save changes'}
+            </button>
+          </div>
+        )}
+
+        <div style={{ textAlign: 'center', fontSize: 11, color: C.muted, marginTop: 24 }}>Clinic Living Plus Pvt Ltd™ · +91 72931 11120</div>
+      </div>
+    </div>
+  )
+}
