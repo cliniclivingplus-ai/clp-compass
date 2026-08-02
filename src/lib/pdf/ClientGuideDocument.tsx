@@ -45,7 +45,7 @@ export type GuideData = {
   coachQuote: string // personalized callback line, grounded in a real transcript detail — empty if none found
   imageBank: GuideImage[] // coach-uploaded, tag-matched into sections that genuinely fit — never forced
   recipeBank: BankRecipe[] // coach-built recipes, tag/keyword-matched to this patient's real concern & diet notes
-  manualRecipes: Partial<Record<DayMealSlot, string>> // coach's explicit recipe-id override per slot, used when auto-detection finds nothing (or to override it)
+  manualRecipes: Partial<Record<DayMealSlot, string[]>> // coach's curated recipe-id list per slot; when set, replaces the auto-detected picks for that slot entirely
 }
 
 const cover = StyleSheet.create({

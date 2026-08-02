@@ -8,6 +8,11 @@
 // Meal: breakfast
 // Protein: ~15g protein
 // Tags: gut-health, quick
+// Eat Time: ~7:30 AM          (all of these are optional)
+// Prep Time: 5 mins
+// Cook Time: 10 mins
+// Difficulty: Easy
+// Health Score: 9/10
 // Ingredients:
 // - moong sprouts
 // - moringa leaves
@@ -16,10 +21,20 @@
 // 1. Soak sprouts overnight.
 // 2. Blend with besan and spices.
 // 3. Cook on a tawa like a cheela.
+// Tools:
+// - Blender
+// - Tawa
+// Notes:
+// - Make it fresh every day.
 export const RECIPE_IMPORT_TEMPLATE = `### Sprouts Moringa Cheela
 Meal: breakfast
 Protein: ~15g protein
 Tags: gut-health, quick
+Eat Time: ~8:00 AM
+Prep Time: 10 mins
+Cook Time: 10 mins
+Difficulty: Easy
+Health Score: 9/10
 Ingredients:
 - Moong sprouts, 1 cup
 - Moringa leaves, a handful
@@ -29,6 +44,11 @@ Steps:
 1. Blend sprouts, moringa leaves, besan, and spices with a little water into a thick batter.
 2. Heat a tawa with a few drops of oil.
 3. Pour a ladle of batter, spread thin, cook 2 minutes each side until golden.
+Tools:
+- Blender or food processor
+- Tawa
+Notes:
+- Best eaten fresh, right off the tawa.
 
 ### Vegetable Khichdi
 Meal: lunch
@@ -52,6 +72,15 @@ export type ParsedRecipe = {
   ingredients: string
   steps: string
   tags: string[]
+  eat_time: string
+  prep_time: string
+  cook_time: string
+  difficulty: string
+  health_score: string
+  servings: string
+  tools: string[]
+  notes: string[]
+  benefits: string[]
 }
 
 export type RecipeImportResult = {
@@ -100,9 +129,18 @@ export function parseRecipeBankText(raw: string): RecipeImportResult {
     let mealType = ''
     let proteinLabel = ''
     let tags: string[] = []
-    let section: 'ingredients' | 'steps' | null = null
+    let eatTime = ''
+    let prepTime = ''
+    let cookTime = ''
+    let difficulty = ''
+    let healthScore = ''
+    let servings = ''
+    let section: 'ingredients' | 'steps' | 'tools' | 'notes' | 'benefits' | null = null
     const ingredientLines: string[] = []
     const stepLines: string[] = []
+    const toolLines: string[] = []
+    const noteLines: string[] = []
+    const benefitLines: string[] = []
 
     for (const line of blockLines) {
       const trimmed = line.trim()
@@ -110,13 +148,31 @@ export function parseRecipeBankText(raw: string): RecipeImportResult {
       const mealMatch = trimmed.match(/^meal:\s*(.+)$/i)
       const proteinMatch = trimmed.match(/^protein:\s*(.+)$/i)
       const tagsMatch = trimmed.match(/^tags:\s*(.+)$/i)
+      const eatMatch = trimmed.match(/^eat\s*time:\s*(.+)$/i)
+      const prepMatch = trimmed.match(/^prep\s*time:\s*(.+)$/i)
+      const cookMatch = trimmed.match(/^cook\s*time:\s*(.+)$/i)
+      const difficultyMatch = trimmed.match(/^difficulty:\s*(.+)$/i)
+      const healthMatch = trimmed.match(/^health\s*score:\s*(.+)$/i)
+      const servingsMatch = trimmed.match(/^servings:\s*(.+)$/i)
       if (mealMatch) { mealType = mealMatch[1].trim().toLowerCase(); continue }
       if (proteinMatch) { proteinLabel = proteinMatch[1].trim(); continue }
       if (tagsMatch) { tags = tagsMatch[1].split(',').map((t) => t.trim().toLowerCase()).filter(Boolean); continue }
+      if (eatMatch) { eatTime = eatMatch[1].trim(); continue }
+      if (prepMatch) { prepTime = prepMatch[1].trim(); continue }
+      if (cookMatch) { cookTime = cookMatch[1].trim(); continue }
+      if (difficultyMatch) { difficulty = difficultyMatch[1].trim(); continue }
+      if (healthMatch) { healthScore = healthMatch[1].trim(); continue }
+      if (servingsMatch) { servings = servingsMatch[1].trim(); continue }
       if (/^ingredients:?\s*$/i.test(trimmed)) { section = 'ingredients'; continue }
       if (/^steps:?\s*$/i.test(trimmed)) { section = 'steps'; continue }
+      if (/^tools:?\s*$/i.test(trimmed)) { section = 'tools'; continue }
+      if (/^notes:?\s*$/i.test(trimmed)) { section = 'notes'; continue }
+      if (/^(benefits|why it works):?\s*$/i.test(trimmed)) { section = 'benefits'; continue }
       if (section === 'ingredients') ingredientLines.push(trimmed.replace(/^[-•\s]+/, ''))
       else if (section === 'steps') stepLines.push(trimmed.replace(/^\d+[.)]\s*/, ''))
+      else if (section === 'tools') toolLines.push(trimmed.replace(/^[-•\s]+/, ''))
+      else if (section === 'notes') noteLines.push(trimmed.replace(/^[-•\s]+/, ''))
+      else if (section === 'benefits') benefitLines.push(trimmed.replace(/^[-•\s]+/, ''))
     }
 
     if (!VALID_MEAL_TYPES.has(mealType)) { errors.push({ block: i + 1, reason: `"${name}": Meal must be breakfast, lunch, dinner, or snack (got "${mealType || 'none'}")` }); return }
@@ -130,6 +186,15 @@ export function parseRecipeBankText(raw: string): RecipeImportResult {
       ingredients: ingredientLines.join('\n'),
       steps: stepLines.join('\n'),
       tags,
+      eat_time: eatTime,
+      prep_time: prepTime,
+      cook_time: cookTime,
+      difficulty,
+      health_score: healthScore,
+      servings,
+      tools: toolLines,
+      notes: noteLines,
+      benefits: benefitLines,
     })
   })
 
