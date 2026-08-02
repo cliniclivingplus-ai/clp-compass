@@ -427,13 +427,13 @@ function clpScaleLine(line, ratio){
     for (var i=0;i<snap.length;i++){ if (Math.abs(frac-snap[i][0])<0.02) return whole>0 ? (whole+' '+snap[i][1]) : snap[i][1]; }
     if (Math.abs(frac)<0.02) return String(whole);
     var rounded = Math.round(n*100)/100;
-    return (rounded % 1 === 0) ? String(rounded) : rounded.toFixed(2).replace(/0+$/,'').replace(/\.$/,'');
+    return (rounded % 1 === 0) ? String(rounded) : rounded.toFixed(2).replace(/0+$/,'').replace(/\\.$/,'');
   }
-  var pattern = /\d+\s+\d+\/\d+|\d+\/\d+|\d+\.\d+|\d+|[¼½¾⅓⅔⅕⅖⅗⅘⅛⅜⅝⅞]/g;
+  var pattern = /\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+\\.\\d+|\\d+|[¼½¾⅓⅔⅕⅖⅗⅘⅛⅜⅝⅞]/g;
   return line.replace(pattern, function(token){
     var value;
     if (fracChars[token] !== undefined) value = fracChars[token];
-    else if (token.indexOf(' ') !== -1) { var parts = token.split(/\s+/); var f = parts[1].split('/'); value = Number(parts[0]) + Number(f[0])/Number(f[1]); }
+    else if (token.indexOf(' ') !== -1) { var parts = token.split(/\\s+/); var f = parts[1].split('/'); value = Number(parts[0]) + Number(f[0])/Number(f[1]); }
     else if (token.indexOf('/') !== -1) { var f2 = token.split('/'); value = Number(f2[0])/Number(f2[1]); }
     else value = Number(token);
     return fmt(value*ratio);
