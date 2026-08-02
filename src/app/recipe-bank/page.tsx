@@ -10,7 +10,11 @@ const C = {
   danger: '#b4462f',
 }
 
-type Recipe = { id: string; name: string; meal_type: string; protein_label: string | null; ingredients: string; steps: string; tags: string[] }
+type Recipe = {
+  id: string; name: string; meal_type: string; protein_label: string | null; ingredients: string; steps: string; tags: string[]
+  eat_time: string | null; prep_time: string | null; cook_time: string | null; difficulty: string | null; health_score: string | null; servings: string | null
+  tools: string[]; notes: string[]; benefits: string[]
+}
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const
 
@@ -30,11 +34,22 @@ export default function RecipeBankPage() {
   const [ingredients, setIngredients] = useState('')
   const [steps, setSteps] = useState('')
   const [tags, setTags] = useState('')
+  const [showFacts, setShowFacts] = useState(false)
+  const [eatTime, setEatTime] = useState('')
+  const [prepTime, setPrepTime] = useState('')
+  const [cookTime, setCookTime] = useState('')
+  const [difficulty, setDifficulty] = useState('')
+  const [healthScore, setHealthScore] = useState('')
+  const [tools, setTools] = useState('')
+  const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [deletingId, setDeletingId] = useState('')
   const [editingId, setEditingId] = useState('')
-  const [editDraft, setEditDraft] = useState<{ name: string; meal_type: string; protein_label: string; ingredients: string; steps: string; tags: string } | null>(null)
+  const [editDraft, setEditDraft] = useState<{
+    name: string; meal_type: string; protein_label: string; ingredients: string; steps: string; tags: string
+    eat_time: string; prep_time: string; cook_time: string; difficulty: string; health_score: string; tools: string; notes: string
+  } | null>(null)
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState('')
   const [showFormat, setShowFormat] = useState(false)
@@ -61,12 +76,17 @@ export default function RecipeBankPage() {
     try {
       const r = await fetch('/api/recipe-bank', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), meal_type: mealType, protein_label: proteinLabel.trim(), ingredients: ingredients.trim(), steps: steps.trim(), tags: tags.trim() }),
+        body: JSON.stringify({
+          name: name.trim(), meal_type: mealType, protein_label: proteinLabel.trim(), ingredients: ingredients.trim(), steps: steps.trim(), tags: tags.trim(),
+          eat_time: eatTime.trim(), prep_time: prepTime.trim(), cook_time: cookTime.trim(), difficulty: difficulty.trim(), health_score: healthScore.trim(),
+          tools: tools.trim(), notes: notes.trim(),
+        }),
       })
       const j = await r.json()
       if (!r.ok) { setSaveError(j.error || 'Save failed'); return }
       setRecipes((prev) => [j, ...prev])
       setName(''); setProteinLabel(''); setIngredients(''); setSteps(''); setTags('')
+      setEatTime(''); setPrepTime(''); setCookTime(''); setDifficulty(''); setHealthScore(''); setTools(''); setNotes('')
     } catch {
       setSaveError('Network error — try again.')
     } finally { setSaving(false) }
@@ -117,6 +137,9 @@ export default function RecipeBankPage() {
       ingredients: splitRecipeLines(r.ingredients).join('\n'),
       steps: splitRecipeLines(r.steps).join('\n'),
       tags: r.tags.join(', '),
+      eat_time: r.eat_time || '', prep_time: r.prep_time || '', cook_time: r.cook_time || '',
+      difficulty: r.difficulty || '', health_score: r.health_score || '',
+      tools: (r.tools || []).join('\n'), notes: (r.notes || []).join('\n'),
     })
   }
 
@@ -215,6 +238,46 @@ export default function RecipeBankPage() {
           <label style={labelStyle}>Tags (optional, comma-separated — used to match to a patient's plan)</label>
           <input style={inputStyle} value={tags} onChange={(e) => setTags(e.target.value)} placeholder="gut-health, high-protein, quick" />
         </div>
+        <button onClick={() => setShowFacts((v) => !v)} type="button"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: 0, marginBottom: showFacts ? 10 : 12, background: 'none', border: 'none', color: C.green, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+          {showFacts ? '− Hide' : '+ Add'} facts, tools & notes (optional — from a recipe card, if you have one)
+        </button>
+        {showFacts && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 10 }}>
+              <div>
+                <label style={labelStyle}>Eat time</label>
+                <input style={inputStyle} value={eatTime} onChange={(e) => setEatTime(e.target.value)} placeholder="~7:30 AM" />
+              </div>
+              <div>
+                <label style={labelStyle}>Prep time</label>
+                <input style={inputStyle} value={prepTime} onChange={(e) => setPrepTime(e.target.value)} placeholder="5 mins" />
+              </div>
+              <div>
+                <label style={labelStyle}>Cook time</label>
+                <input style={inputStyle} value={cookTime} onChange={(e) => setCookTime(e.target.value)} placeholder="10 mins" />
+              </div>
+              <div>
+                <label style={labelStyle}>Difficulty</label>
+                <input style={inputStyle} value={difficulty} onChange={(e) => setDifficulty(e.target.value)} placeholder="Easy" />
+              </div>
+              <div>
+                <label style={labelStyle}>Health score</label>
+                <input style={inputStyle} value={healthScore} onChange={(e) => setHealthScore(e.target.value)} placeholder="9/10" />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={labelStyle}>Tools (one per line)</label>
+                <textarea style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.5 }} rows={2} value={tools} onChange={(e) => setTools(e.target.value)} placeholder="Blender&#10;Tawa" />
+              </div>
+              <div>
+                <label style={labelStyle}>Notes (one per line)</label>
+                <textarea style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.5 }} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Best eaten fresh." />
+              </div>
+            </div>
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button onClick={save} disabled={saving || !canSave}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 8, border: 'none', background: C.green, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: canSave ? 1 : 0.6 }}>
@@ -264,6 +327,38 @@ export default function RecipeBankPage() {
                         <div style={{ marginBottom: 10 }}>
                           <label style={labelStyle}>Tags (comma-separated)</label>
                           <input style={inputStyle} value={editDraft.tags} onChange={(e) => setEditDraft({ ...editDraft, tags: e.target.value })} />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 10 }}>
+                          <div>
+                            <label style={labelStyle}>Eat time</label>
+                            <input style={inputStyle} value={editDraft.eat_time} onChange={(e) => setEditDraft({ ...editDraft, eat_time: e.target.value })} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>Prep time</label>
+                            <input style={inputStyle} value={editDraft.prep_time} onChange={(e) => setEditDraft({ ...editDraft, prep_time: e.target.value })} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>Cook time</label>
+                            <input style={inputStyle} value={editDraft.cook_time} onChange={(e) => setEditDraft({ ...editDraft, cook_time: e.target.value })} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>Difficulty</label>
+                            <input style={inputStyle} value={editDraft.difficulty} onChange={(e) => setEditDraft({ ...editDraft, difficulty: e.target.value })} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>Health score</label>
+                            <input style={inputStyle} value={editDraft.health_score} onChange={(e) => setEditDraft({ ...editDraft, health_score: e.target.value })} />
+                          </div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                          <div>
+                            <label style={labelStyle}>Tools (one per line)</label>
+                            <textarea style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.5 }} rows={2} value={editDraft.tools} onChange={(e) => setEditDraft({ ...editDraft, tools: e.target.value })} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>Notes (one per line)</label>
+                            <textarea style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.5 }} rows={2} value={editDraft.notes} onChange={(e) => setEditDraft({ ...editDraft, notes: e.target.value })} />
+                          </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <button onClick={() => saveEdit(r.id)} disabled={editSaving}

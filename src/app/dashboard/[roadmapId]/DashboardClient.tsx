@@ -1,6 +1,6 @@
 'use client'
 import { useState, useMemo, useEffect, type ReactNode } from 'react'
-import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp } from 'lucide-react'
+import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp, ChevronDown, ChevronRight } from 'lucide-react'
 import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoadmap'
 import { parseNutritionistGuidelines } from '@/lib/pdf/parseNutritionistGuidelines'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
@@ -121,52 +121,196 @@ function MealWheel({ categories, label }: { categories: string[]; label: string 
   )
 }
 
-// Styled after the richer recipe-card reference the coach liked (hero image,
-// numbered ingredient chips, a connected step timeline) — but only with
-// fields this app actually stores. Fields the reference has that we don't
-// (prep/cook time, difficulty, tools, health score) are left out entirely
-// rather than invented.
-function RecipeBody({ match, imageUrl }: { match: RecipeMatch; imageUrl: string | null }) {
-  const recipe = match.recipe
+const factRow = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 0', borderBottom: `1px solid ${C.rule}`, fontSize: 12.5 }
+// Purely decorative, cycled by index — not tied to any specific ingredient's
+// meaning (that would mean guessing/fabricating a "correct" icon per food).
+const BENEFIT_ICONS = [Sparkles, HeartPulse, Flame, Star, Target, TrendingUp]
+
+const FRACTION_CHARS: Record<string, number> = { '¼': 0.25, '½': 0.5, '¾': 0.75, '⅓': 1 / 3, '⅔': 2 / 3, '⅕': 0.2, '⅖': 0.4, '⅗': 0.6, '⅘': 0.8, '⅛': 0.125, '⅜': 0.375, '⅝': 0.625, '⅞': 0.875 }
+const FRACTION_SNAP: [number, string][] = [[0.125, '⅛'], [0.2, '⅕'], [0.25, '¼'], [1 / 3, '⅓'], [0.375, '⅜'], [0.4, '⅖'], [0.5, '½'], [0.6, '⅗'], [0.625, '⅝'], [2 / 3, '⅔'], [0.75, '¾'], [0.8, '⅘'], [0.875, '⅞']]
+
+// Formats a scaled quantity back to a friendly form — snapping to a common
+// cooking fraction when the scaled value lands close to one (½, ¼, etc.),
+// otherwise a plain rounded number. Never introduces a value that wasn't
+// already a real multiple of what was written in the recipe.
+function formatScaledNumber(n: number): string {
+  const whole = Math.floor(n + 1e-6)
+  const frac = n - whole
+  for (const [val, char] of FRACTION_SNAP) {
+    if (Math.abs(frac - val) < 0.02) return whole > 0 ? `${whole} ${char}` : char
+  }
+  if (Math.abs(frac) < 0.02) return String(whole)
+  const rounded = Math.round(n * 100) / 100
+  return rounded % 1 === 0 ? String(rounded) : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
+}
+
+// Scales every numeric quantity actually written in an ingredient line (a
+// plain integer, decimal, "1/2"-style fraction, "1 1/2" mixed number, or a
+// unicode fraction character) by `ratio` — real arithmetic on the real
+// number the coach entered, never an invented quantity. Non-numeric amounts
+// ("a pinch of", "to taste") are left untouched, same as a person scaling a
+// recipe by hand would leave them.
+function scaleIngredientLine(line: string, ratio: number): string {
+  if (ratio === 1) return line
+  const pattern = /\d+\s+\d+\/\d+|\d+\/\d+|\d+\.\d+|\d+|[¼½¾⅓⅔⅕⅖⅗⅘⅛⅜⅝⅞]/g
+  return line.replace(pattern, (token) => {
+    let value: number
+    if (FRACTION_CHARS[token] !== undefined) value = FRACTION_CHARS[token]
+    else if (token.includes(' ')) { const [w, f] = token.split(/\s+/); const [n, d] = f.split('/'); value = Number(w) + Number(n) / Number(d) }
+    else if (token.includes('/')) { const [n, d] = token.split('/'); value = Number(n) / Number(d) }
+    else value = Number(token)
+    return formatScaledNumber(value * ratio)
+  })
+}
+
+// Parses the leading number out of a free-text servings note ("1 serving",
+// "Serves 4", "multiple servings") to use as the base a scaled count
+// multiplies against. Falls back to 1 (no note, or no number in it) rather
+// than guessing.
+function parseServingsBase(servings: string | null | undefined): number {
+  const m = (servings || '').match(/\d+/)
+  return m ? Math.max(1, parseInt(m[0], 10)) : 1
+}
+
+// Styled after the richer recipe-card reference the coach liked — a 3-block
+// layout (facts panel / directions / ingredients) with hero image, numbered
+// ingredients, and a connected step timeline. Only fields this app actually
+// stores render: Total Steps is real (steps.length); Eat/Prep/Cook
+// Time, Difficulty, Health Score, Tools, Notes, and Why It Works only show up
+// when a coach actually entered them (e.g. from a Canva recipe card) — never
+// invented. The servings stepper scales the real numbers already written in
+// each ingredient line rather than showing a number with no real effect.
+function RecipeBody({ recipe, imageUrl }: { recipe: RecipeMatch['recipe']; imageUrl: string | null }) {
   const ingredients = splitRecipeLines(recipe.ingredients)
   const steps = splitRecipeLines(recipe.steps)
+  const tools = recipe.tools ?? []
+  const notes = recipe.notes ?? []
+  const benefits = recipe.benefits ?? []
+  const base = parseServingsBase(recipe.servings)
+  const [servingsCount, setServingsCount] = useState(base)
+  const ratio = servingsCount / base
+  const facts: [string, string][] = [
+    ...(recipe.eat_time ? [['Eat time', recipe.eat_time] as [string, string]] : []),
+    ...(recipe.prep_time ? [['Prep time', recipe.prep_time] as [string, string]] : []),
+    ...(recipe.cook_time ? [['Cook time', recipe.cook_time] as [string, string]] : []),
+    ...(recipe.difficulty ? [['Difficulty', recipe.difficulty] as [string, string]] : []),
+    ...(recipe.health_score ? [['Health score', recipe.health_score] as [string, string]] : []),
+  ]
+
   return (
-    <>
-      {imageUrl ? (
-        <img src={imageUrl} alt={recipe.name} style={{ width: '100%', height: 170, objectFit: 'cover', borderRadius: 14, marginBottom: 16 }} />
-      ) : (
-        <div style={{ width: '100%', height: 170, borderRadius: 14, marginBottom: 16, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <ChefHat size={36} color={C.accent} />
-        </div>
-      )}
-      {recipe.protein_label && (
-        <div style={{ display: 'inline-block', fontSize: 10.5, fontWeight: 700, color: C.green, background: `${C.green}18`, borderRadius: 20, padding: '4px 10px', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{recipe.protein_label}</div>
-      )}
-      <div style={{ fontSize: 20, fontWeight: 700, color: C.ink, paddingRight: 28, marginBottom: 14 }}>{recipe.name}</div>
-
-      <div style={{ background: C.accentSoft, borderRadius: 10, padding: '10px 14px', marginBottom: 20, fontSize: 12.5, color: C.ink, fontStyle: 'italic', lineHeight: 1.5 }}>{match.why}</div>
-
-      <div style={weekBoxLabel}>Ingredients</div>
-      <div style={{ marginBottom: 20 }}>
-        {ingredients.map((line, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < ingredients.length - 1 ? `1px solid ${C.rule}` : 'none' }}>
-            <div style={{ width: 20, height: 20, borderRadius: 6, background: C.accentSoft, color: C.accent, fontSize: 10.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</div>
-            <span style={{ fontSize: 13, color: C.ink }}>{line}</span>
-          </div>
-        ))}
-      </div>
-
-      <div style={weekBoxLabel}>Directions</div>
+  <>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 24, alignItems: 'start' }}>
       <div>
-        {steps.map((line, i) => (
-          <div key={i} style={{ display: 'flex', gap: 12, position: 'relative', paddingBottom: i < steps.length - 1 ? 18 : 0 }}>
-            {i < steps.length - 1 && <div style={{ position: 'absolute', left: 12, top: 26, bottom: 0, width: 1.5, background: C.rule }} />}
-            <div style={{ width: 25, height: 25, borderRadius: '50%', background: C.accent, color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, zIndex: 1 }}>{i + 1}</div>
-            <div style={{ fontSize: 13, color: C.inkSoft, lineHeight: 1.55, paddingTop: 3 }}>{line}</div>
+        {imageUrl ? (
+          <img src={imageUrl} alt={recipe.name} style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', borderRadius: 14, marginBottom: 14 }} />
+        ) : (
+          <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: 14, marginBottom: 14, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <ChefHat size={36} color={C.accent} />
           </div>
-        ))}
+        )}
+        <div>
+          {facts.map(([label, val]) => (
+            <div key={label} style={factRow}>
+              <span style={{ color: C.muted, fontWeight: 500 }}>{label}</span>
+              <span style={{ fontWeight: 700, color: C.ink }}>{val}</span>
+            </div>
+          ))}
+        </div>
       </div>
-    </>
+
+      <div>
+        {recipe.protein_label && (
+          <div style={{ display: 'inline-block', fontSize: 10.5, fontWeight: 700, color: C.green, background: `${C.green}18`, borderRadius: 20, padding: '4px 10px', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{recipe.protein_label}</div>
+        )}
+        <div style={{ fontSize: 22, fontWeight: 700, color: C.ink, paddingRight: 28, marginBottom: 20, lineHeight: 1.15 }}>{recipe.name}</div>
+
+        {tools.length > 0 && (
+          <div style={{ marginBottom: 22 }}>
+            <div style={weekBoxLabel}>Tools &amp; equipment</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px' }}>
+              {tools.map((t, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: C.ink }}>
+                  <span style={{ width: 20, height: 20, borderRadius: '50%', background: C.accentSoft, color: C.accent, fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+                  {t}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ marginBottom: notes.length ? 20 : 0 }}>
+          <div style={weekBoxLabel}>Directions</div>
+          <div>
+            {steps.map((line, i) => (
+              <div key={i} style={{ display: 'flex', gap: 12, position: 'relative', paddingBottom: i < steps.length - 1 ? 18 : 0 }}>
+                {i < steps.length - 1 && <div style={{ position: 'absolute', left: 12, top: 26, bottom: 0, width: 1.5, background: C.rule }} />}
+                <div style={{ width: 25, height: 25, borderRadius: '50%', background: C.accent, color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, zIndex: 1 }}>{i + 1}</div>
+                <div style={{ fontSize: 13, color: C.inkSoft, lineHeight: 1.55, paddingTop: 3 }}>{line}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {notes.length > 0 && (
+          <div>
+            <div style={weekBoxLabel}>Notes</div>
+            {notes.map((n, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12.5, color: C.inkSoft, padding: '4px 0', lineHeight: 1.5 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.green, marginTop: 6, flexShrink: 0 }} />
+                {n}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div data-ing-list={recipe.id} data-ing-base={base}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ ...weekBoxLabel, marginBottom: 0 }}>Servings</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button data-serve-dec={recipe.id} onClick={() => setServingsCount((c) => Math.max(1, c - 1))}
+              style={{ width: 24, height: 24, borderRadius: '50%', border: `1px solid ${C.rule}`, background: C.bg, color: C.ink, fontSize: 15, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+            <span data-serve-count={recipe.id} style={{ fontWeight: 700, color: C.ink, minWidth: 14, textAlign: 'center' }}>{servingsCount}</span>
+            <button data-serve-inc={recipe.id} onClick={() => setServingsCount((c) => Math.min(12, c + 1))}
+              style={{ width: 24, height: 24, borderRadius: '50%', border: `1px solid ${C.rule}`, background: C.bg, color: C.ink, fontSize: 15, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+          </div>
+        </div>
+        <div>
+          {ingredients.map((line, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < ingredients.length - 1 ? `1px solid ${C.rule}` : 'none' }}>
+              <div style={{ width: 20, height: 20, borderRadius: 6, background: C.accentSoft, color: C.accent, fontSize: 10.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</div>
+              <span data-ing-item={i} data-ing-raw={line} style={{ fontSize: 13, color: C.ink }}>{scaleIngredientLine(line, ratio)}</span>
+            </div>
+          ))}
+        </div>
+        {base !== 1 && <div style={{ fontSize: 11, color: C.muted, fontStyle: 'italic', marginTop: 8 }}>Scaled from {base} servings.</div>}
+      </div>
+    </div>
+
+    {benefits.length > 0 && (
+      <div style={{ background: C.paper, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '18px 20px', marginTop: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <div style={{ ...weekBoxLabel, marginBottom: 0 }}>Why it works</div>
+          <div style={{ flex: 1, height: 1, background: C.rule }} />
+        </div>
+        {benefits.map((b, i) => {
+          const [name, ...rest] = b.split(/\s*—\s*|\s+-\s+/)
+          const desc = rest.join(' — ')
+          const BenefitIcon = BENEFIT_ICONS[i % BENEFIT_ICONS.length]
+          return (
+            <div key={i} style={{ display: 'flex', gap: 10, padding: '11px 0', borderBottom: i < benefits.length - 1 ? `1px solid ${C.rule}` : 'none' }}>
+              <div style={{ width: 26, height: 26, borderRadius: 8, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <BenefitIcon size={13} color={C.accent} />
+              </div>
+              <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.55 }}>
+                {desc ? <><strong>{name}</strong> — {desc}</> : b}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )}
+  </>
   )
 }
 
@@ -269,6 +413,44 @@ function clpShiftISO(dateISO, delta){
   return d.toISOString().slice(0, 10);
 }
 function clpTodayISO(){ return new Date().toISOString().slice(0, 10); }
+// Same real-number scaling as the live page's scaleIngredientLine — only
+// multiplies numeric tokens actually present in the ingredient text, never
+// invents a quantity — ported to plain JS since the exported file has no
+// React runtime to run the original against.
+function clpScaleLine(line, ratio){
+  if (ratio === 1) return line;
+  var fracChars = {'¼':0.25,'½':0.5,'¾':0.75,'⅓':1/3,'⅔':2/3,'⅕':0.2,'⅖':0.4,'⅗':0.6,'⅘':0.8,'⅛':0.125,'⅜':0.375,'⅝':0.625,'⅞':0.875};
+  var snap = [[0.125,'⅛'],[0.2,'⅕'],[0.25,'¼'],[1/3,'⅓'],[0.375,'⅜'],[0.4,'⅖'],[0.5,'½'],[0.6,'⅗'],[0.625,'⅝'],[2/3,'⅔'],[0.75,'¾'],[0.8,'⅘'],[0.875,'⅞']];
+  function fmt(n){
+    var whole = Math.floor(n + 1e-6);
+    var frac = n - whole;
+    for (var i=0;i<snap.length;i++){ if (Math.abs(frac-snap[i][0])<0.02) return whole>0 ? (whole+' '+snap[i][1]) : snap[i][1]; }
+    if (Math.abs(frac)<0.02) return String(whole);
+    var rounded = Math.round(n*100)/100;
+    return (rounded % 1 === 0) ? String(rounded) : rounded.toFixed(2).replace(/0+$/,'').replace(/\.$/,'');
+  }
+  var pattern = /\d+\s+\d+\/\d+|\d+\/\d+|\d+\.\d+|\d+|[¼½¾⅓⅔⅕⅖⅗⅘⅛⅜⅝⅞]/g;
+  return line.replace(pattern, function(token){
+    var value;
+    if (fracChars[token] !== undefined) value = fracChars[token];
+    else if (token.indexOf(' ') !== -1) { var parts = token.split(/\s+/); var f = parts[1].split('/'); value = Number(parts[0]) + Number(f[0])/Number(f[1]); }
+    else if (token.indexOf('/') !== -1) { var f2 = token.split('/'); value = Number(f2[0])/Number(f2[1]); }
+    else value = Number(token);
+    return fmt(value*ratio);
+  });
+}
+function clpSetServings(id, delta){
+  var countEl = document.querySelector('[data-serve-count="'+id+'"]');
+  var listEl = document.querySelector('[data-ing-list="'+id+'"]');
+  if (!countEl || !listEl) return;
+  var base = parseInt(listEl.getAttribute('data-ing-base'), 10) || 1;
+  var count = Math.max(1, Math.min(12, (parseInt(countEl.textContent, 10) || base) + delta));
+  countEl.textContent = String(count);
+  var ratio = count / base;
+  listEl.querySelectorAll('[data-ing-item]').forEach(function(el){
+    el.textContent = clpScaleLine(el.getAttribute('data-ing-raw'), ratio);
+  });
+}
 function showPlateExport(meal){
   ['breakfast','lunch','dinner'].forEach(function(m){
     var panel = document.getElementById('pp-'+m);
@@ -309,10 +491,44 @@ function openWeekExport(id){
   document.querySelectorAll('[data-week-body]').forEach(function(el){
     el.style.display = (el.getAttribute('data-week-body')===id) ? 'block' : 'none';
   });
+  closeDayExport();
+  closeSlotExport();
 }
 function openWeekExportReset(){
   document.querySelectorAll('[data-week-list]').forEach(function(el){ el.style.display = ''; });
   document.querySelectorAll('[data-week-body]').forEach(function(el){ el.style.display = 'none'; });
+  closeDayExport();
+  closeSlotExport();
+}
+function toggleDayExport(id, btn){
+  var body = document.querySelector('[data-day-body="' + id + '"]');
+  if (!body) return;
+  var isOpen = body.style.display === 'block';
+  document.querySelectorAll('[data-day-body]').forEach(function(el){ el.style.display = 'none'; });
+  document.querySelectorAll('[data-day-trigger]').forEach(function(el){
+    var icon = el.querySelector('svg');
+    if (icon) icon.style.transform = '';
+  });
+  if (!isOpen) {
+    body.style.display = 'block';
+    if (btn) {
+      var icon = btn.querySelector('svg');
+      if (icon) icon.style.transform = 'rotate(90deg)';
+    }
+  }
+}
+function closeDayExport(){
+  document.querySelectorAll('[data-day-body]').forEach(function(el){ el.style.display = 'none'; });
+}
+function openSlotExport(id){
+  document.querySelectorAll('[data-slot-list]').forEach(function(el){ el.style.display = 'none'; });
+  document.querySelectorAll('[data-slot-body]').forEach(function(el){
+    el.style.display = (el.getAttribute('data-slot-body')===id) ? 'block' : 'none';
+  });
+}
+function closeSlotExport(){
+  document.querySelectorAll('[data-slot-list]').forEach(function(el){ el.style.display = 'grid'; });
+  document.querySelectorAll('[data-slot-body]').forEach(function(el){ el.style.display = 'none'; });
 }
 // A goal row shows "done" only for TODAY's real date — same daily-habit
 // semantics as the live app (checkedSet is keyed by today's date there
@@ -437,6 +653,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [openRecipeId, setOpenRecipeId] = useState<string | null>(null)
   const [openMonth, setOpenMonth] = useState<number | null>(null)
   const [openWeek, setOpenWeek] = useState<number | null>(null)
+  const [openDay, setOpenDay] = useState<string | null>(null)
+  const [openSlot, setOpenSlot] = useState<string | null>(null)
   const today = todayISO()
 
   // Edit state — seeded once from `data` and only ever touched by the coach
@@ -450,7 +668,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [nutritionistId, setNutritionistId] = useState(data.coach?.id ?? '')
   const [lifestyleText, setLifestyleText] = useState(data.roadmap.lifestyle_guidelines)
   const [editWeeks, setEditWeeks] = useState<WeeklyPlan[]>(data.roadmap.weekly_schedule)
-  const [manualRecipes, setManualRecipes] = useState<Partial<Record<DayMealSlot, string>>>(data.manualRecipes || {})
+  const [manualRecipes, setManualRecipes] = useState<Partial<Record<DayMealSlot, string[]>>>(data.manualRecipes || {})
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -569,13 +787,17 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   // PDF never show different pictures or different recipes for the same
   // patient. One shared `used` set, matched in the same top-to-bottom order
   // as the PDF sections, so the same photo doesn't repeat across sections.
-  const { heroImage, mealMatches, mealImages, superfoodImage, monthImages } = useMemo(() => {
+  const { heroImage, mealMatches, weekMealMatches, mealImages, superfoodImage, monthImages } = useMemo(() => {
     const used = new Set<string>()
     const hero = matchGuideImageDistinct(data.roadmap.lifestyle_guidelines, data.imageBank, used)
     const parsed = parseNutritionistGuidelines(data.roadmap.nutritionist_guidelines)
+    // Matched once at the wider limit (5) — "Your power plates" below just
+    // uses the top 2 of the same ranked list, so both sections always agree
+    // on which recipes rank highest for this patient.
     const selection = selectRecipesForPatient(
       { primaryConcern: data.patient.primary_concern || '', dietProtocol: parsed.dietProtocol },
-      data.recipeBank
+      data.recipeBank,
+      5
     )
     const images = new Map<string, string | null>()
     for (const meal of ['breakfast', 'lunch', 'dinner', 'snack'] as const) {
@@ -594,33 +816,50 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
       const img = matchGuideImageDistinct(query, data.imageBank, used)
       months.set(String(m.monthNumber), img?.image_url ?? null)
     }
-    return { heroImage: hero, mealMatches: selection, mealImages: images, superfoodImage: superfood, monthImages: months }
+    const capped = { breakfast: selection.breakfast.slice(0, 2), lunch: selection.lunch.slice(0, 2), dinner: selection.dinner.slice(0, 2), snack: selection.snack.slice(0, 2) }
+    return { heroImage: hero, mealMatches: capped, weekMealMatches: selection, mealImages: images, superfoodImage: superfood, monthImages: months }
   }, [data])
 
-  // Each of the 4 weekly recipe slots (Breakfast/Lunch/Dinner/Snacks)
-  // resolves to: the coach's explicit manual pick if they set one for that
-  // slot, otherwise the same auto-detected recipe already used elsewhere
+  // The coach's curated recipe-id list for a slot, if they've set one —
+  // falling back to the top auto-detected matches otherwise. Also guards
+  // against the old pre-multi-select data shape (a single recipe id string
+  // per slot) still present on roadmaps saved before this change, treating
+  // it the same as unset rather than crashing on it.
+  const curatedSlotIds = (slot: DayMealSlot): string[] => {
+    const raw = manualRecipes[slot]
+    return Array.isArray(raw) && raw.length ? raw : weekMealMatches[slot].map((m) => m.recipe.id)
+  }
+
+  // Each of the 4 weekly recipe slots (Breakfast/Lunch/Dinner/Snacks) shows a
+  // curated bunch of recipes, not just one: the coach's explicit picks for
+  // that slot if they've curated it, otherwise the top auto-detected matches
   // (tag/keyword matched against this patient's concern & diet notes) — a
-  // coach's explicit choice always wins over a guess.
-  const daySlots = DAY_MEAL_SLOTS.map((slot) => {
-    const manualId = manualRecipes[slot]
-    const manualRecipe = manualId ? data.recipeBank.find((r) => r.id === manualId) : undefined
-    if (manualRecipe) {
-      const img = matchGuideImageDistinct(`${manualRecipe.name} ${manualRecipe.tags.join(' ')}`, data.imageBank, new Set())
-      const match: RecipeMatch = { recipe: manualRecipe, why: `Picked by ${coachFirst} for your plan.` }
-      return { slot, match, image: img?.image_url ?? null }
-    }
-    const auto = mealMatches[slot]?.[0] ?? null
-    return { slot, match: auto, image: auto ? (mealImages.get(auto.recipe.id) ?? null) : null }
+  // coach's curated list always wins over the auto guess.
+  const slotRecipes = DAY_MEAL_SLOTS.map((slot) => {
+    const chosenIds = curatedSlotIds(slot)
+    const matches = chosenIds
+      .map((id): RecipeMatch | null => {
+        const auto = weekMealMatches[slot].find((m) => m.recipe.id === id)
+        if (auto) return auto
+        const recipe = data.recipeBank.find((r) => r.id === id)
+        return recipe ? { recipe, why: `Picked by ${coachFirst} for your plan.` } : null
+      })
+      .filter((m): m is RecipeMatch => !!m)
+    return { slot, matches }
   })
 
   const allMatches = (() => {
     const combined = [...mealMatches.breakfast, ...mealMatches.lunch, ...mealMatches.dinner, ...mealMatches.snack,
-      ...daySlots.map((d) => d.match).filter((m): m is RecipeMatch => !!m)]
+      ...slotRecipes.flatMap((s) => s.matches)]
     return combined.filter((m, i) => combined.findIndex((x) => x.recipe.id === m.recipe.id) === i)
   })()
   const combinedImages = new Map(mealImages)
-  daySlots.forEach((d) => { if (d.match && d.image && !combinedImages.has(d.match.recipe.id)) combinedImages.set(d.match.recipe.id, d.image) })
+  slotRecipes.forEach((s) => s.matches.forEach((m) => {
+    if (!combinedImages.has(m.recipe.id)) {
+      const img = matchGuideImageDistinct(`${m.recipe.name} ${m.recipe.tags.join(' ')}`, data.imageBank, new Set())
+      combinedImages.set(m.recipe.id, img?.image_url ?? null)
+    }
+  }))
 
   // Downloads exactly what's rendered on screen — everything in this
   // component is inline-styled (no external stylesheet to lose), so cloning
@@ -644,6 +883,12 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     })
     clone.querySelectorAll('[data-recipe-close]').forEach((el) => el.setAttribute('onclick', 'closeRecipeExport()'))
     clone.querySelectorAll('[data-recipe-overlay]').forEach((el) => el.setAttribute('onclick', 'if(event.target===this)closeRecipeExport()'))
+    clone.querySelectorAll('[data-serve-dec]').forEach((el) => {
+      el.setAttribute('onclick', `clpSetServings('${el.getAttribute('data-serve-dec')}', -1)`)
+    })
+    clone.querySelectorAll('[data-serve-inc]').forEach((el) => {
+      el.setAttribute('onclick', `clpSetServings('${el.getAttribute('data-serve-inc')}', 1)`)
+    })
     clone.querySelectorAll('[data-month-trigger]').forEach((el) => {
       el.setAttribute('onclick', `openMonthExport('${el.getAttribute('data-month-trigger')}')`)
     })
@@ -653,6 +898,15 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
       el.setAttribute('onclick', `openWeekExport('${el.getAttribute('data-week-trigger')}')`)
     })
     clone.querySelectorAll('[data-week-back]').forEach((el) => el.setAttribute('onclick', 'openWeekExportReset()'))
+    clone.querySelectorAll('[data-day-trigger]').forEach((el) => {
+      el.setAttribute('onclick', `toggleDayExport('${el.getAttribute('data-day-trigger')}', this)`)
+    })
+    clone.querySelectorAll('[data-day-body]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
+    clone.querySelectorAll('[data-slot-trigger]').forEach((el) => {
+      el.setAttribute('onclick', `openSlotExport('${el.getAttribute('data-slot-trigger')}')`)
+    })
+    clone.querySelectorAll('[data-slot-back]').forEach((el) => el.setAttribute('onclick', 'closeSlotExport()'))
+    clone.querySelectorAll('[data-slot-body]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
     clone.querySelectorAll('[data-goal-toggle]').forEach((el) => {
       el.setAttribute('onclick', `toggleGoalExport('${el.getAttribute('data-goal-toggle')}', this)`)
     })
@@ -711,22 +965,22 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
       {allMatches.length > 0 && (
         <div data-recipe-overlay onClick={() => setOpenRecipeId(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(44,36,24,0.55)', display: openRecipeId ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 110 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ position: 'relative', background: C.paper, borderRadius: 16, padding: '24px 26px', maxWidth: 460, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ position: 'relative', background: C.paper, borderRadius: 16, padding: '24px 26px', maxWidth: 900, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
             <button data-recipe-close onClick={() => setOpenRecipeId(null)}
               style={{ position: 'absolute', top: 18, right: 18, background: 'none', border: 'none', cursor: 'pointer', color: C.muted }}><X size={18} /></button>
             {allMatches.map((m) => (
               <div key={m.recipe.id} data-recipe-body={m.recipe.id} style={{ display: openRecipeId === m.recipe.id ? 'block' : 'none' }}>
-                <RecipeBody match={m} imageUrl={combinedImages.get(m.recipe.id) ?? null} />
+                <RecipeBody recipe={m.recipe} imageUrl={combinedImages.get(m.recipe.id) ?? null} />
               </div>
             ))}
           </div>
         </div>
       )}
       {!editable && months.length > 0 && (
-        <div data-month-overlay onClick={() => { setOpenMonth(null); setOpenWeek(null) }}
+        <div data-month-overlay onClick={() => { setOpenMonth(null); setOpenWeek(null); setOpenDay(null); setOpenSlot(null) }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(44,36,24,0.55)', display: openMonth != null ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 100 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ position: 'relative', background: C.paper, borderRadius: 16, padding: '24px 26px', maxWidth: 560, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
-            <button data-month-close onClick={() => { setOpenMonth(null); setOpenWeek(null) }}
+            <button data-month-close onClick={() => { setOpenMonth(null); setOpenWeek(null); setOpenDay(null); setOpenSlot(null) }}
               style={{ position: 'absolute', top: 18, right: 18, background: 'none', border: 'none', cursor: 'pointer', color: C.muted }}><X size={18} /></button>
             {months.map((m) => (
               <div key={m.monthNumber} data-month-body={m.monthNumber} style={{ display: openMonth === m.monthNumber ? 'block' : 'none' }}>
@@ -740,7 +994,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                       const total = w.actions?.length ?? 0
                       const doneCount = (w.actions ?? []).filter((_, i) => checkedSet.has(`${w.week_number}:${i}:${today}`)).length
                       return (
-                        <button key={w.week_number} data-week-trigger={w.week_number} onClick={() => setOpenWeek(w.week_number)}
+                        <button key={w.week_number} data-week-trigger={w.week_number} onClick={() => { setOpenWeek(w.week_number); setOpenDay(null); setOpenSlot(null) }}
                           style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 10, border: `1px solid ${C.rule}`, background: C.bg, cursor: 'pointer' }}>
                           <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>Week {w.week_number}</div>
                           <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{w.focus_theme}</div>
@@ -757,36 +1011,46 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                     Recipes section for the whole week — not per day. */}
                 {m.weeks.map((w: WeeklyPlan) => (
                   <div key={w.week_number} data-week-body={w.week_number} style={{ display: openWeek === w.week_number ? 'block' : 'none' }}>
-                    <button data-week-back onClick={() => setOpenWeek(null)}
+                    <button data-week-back onClick={() => { setOpenWeek(null); setOpenDay(null); setOpenSlot(null) }}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: C.accent, fontSize: 12.5, fontWeight: 700, padding: 0, marginBottom: 14 }}>
                       ← Back to weeks
                     </button>
 
                     <div style={{ ...weekBoxLabel, marginBottom: 10 }}>Sunday to Saturday — this week&apos;s goals</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-                      {DAY_LABELS.map((day) => (
-                        <div key={day} style={{ background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px' }}>
-                          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>{day}</div>
-                          <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, marginBottom: 2 }}>Macro goal</div>
-                          <div style={{ fontSize: 13, color: C.ink, marginBottom: 8 }}>{w.focus_theme}</div>
-                          {(w.actions?.length ?? 0) > 0 && (
-                            <>
-                              <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, marginBottom: 4 }}>Micro goals</div>
-                              {(w.actions ?? []).map((action, actionIndex) => (
-                                <GoalRow key={actionIndex} weekNumber={w.week_number} actionIndex={actionIndex} action={action}
-                                  checked={checkedSet.has(`${w.week_number}:${actionIndex}:${today}`)}
-                                  onToggle={() => toggle(w.week_number, actionIndex)} />
-                              ))}
-                            </>
-                          )}
-                          {w.milestone?.trim() && (
-                            <>
-                              <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, marginTop: 6, marginBottom: 2 }}>Success looks like</div>
-                              <div style={{ fontSize: 13, color: C.ink }}>{w.milestone}</div>
-                            </>
-                          )}
-                        </div>
-                      ))}
+                      {DAY_LABELS.map((day) => {
+                        const dayId = `${w.week_number}-${day}`
+                        const isOpen = openDay === dayId
+                        return (
+                          <div key={day} style={{ background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden' }}>
+                            <button data-day-trigger={dayId} onClick={() => setOpenDay(isOpen ? null : dayId)}
+                              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+                              <span style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{day}</span>
+                              {isOpen ? <ChevronDown size={16} color={C.muted} /> : <ChevronRight size={16} color={C.muted} />}
+                            </button>
+                            <div data-day-body={dayId} style={{ display: isOpen ? 'block' : 'none', padding: '0 14px 14px' }}>
+                              <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, marginBottom: 2 }}>Macro goal</div>
+                              <div style={{ fontSize: 13, color: C.ink, marginBottom: 8 }}>{w.focus_theme}</div>
+                              {(w.actions?.length ?? 0) > 0 && (
+                                <>
+                                  <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, marginBottom: 4 }}>Micro goals</div>
+                                  {(w.actions ?? []).map((action, actionIndex) => (
+                                    <GoalRow key={actionIndex} weekNumber={w.week_number} actionIndex={actionIndex} action={action}
+                                      checked={checkedSet.has(`${w.week_number}:${actionIndex}:${today}`)}
+                                      onToggle={() => toggle(w.week_number, actionIndex)} />
+                                  ))}
+                                </>
+                              )}
+                              {w.milestone?.trim() && (
+                                <>
+                                  <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, marginTop: 6, marginBottom: 2 }}>Success looks like</div>
+                                  <div style={{ fontSize: 13, color: C.ink }}>{w.milestone}</div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                     {w.food_menu?.trim() && (
                       <div style={{ background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', marginBottom: 20 }}>
@@ -796,31 +1060,56 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                     )}
 
                     {/* Recipes — once per week, not per day (recipes aren't
-                        tracked per-day, same as the goals above). */}
+                        tracked per-day, same as the goals above). Tapping a
+                        meal slot opens the coach-curated bunch of recipes
+                        for it; tapping a recipe there opens its full detail. */}
                     <div style={weekBoxLabel}>Recipes for the week</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-                      {daySlots.map(({ slot, match, image }) => (
-                        match ? (
-                          <button key={slot} data-recipe-trigger={match.recipe.id} onClick={() => setOpenRecipeId(match.recipe.id)}
-                            style={{ textAlign: 'left', padding: 0, borderRadius: 12, border: `1px solid ${C.rule}`, background: C.bg, overflow: 'hidden', cursor: 'pointer' }}>
-                            {image ? (
-                              <img src={image} alt={match.recipe.name} style={{ width: '100%', height: 72, objectFit: 'cover', display: 'block' }} />
-                            ) : (
-                              <div style={{ width: '100%', height: 72, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChefHat size={20} color={C.accent} /></div>
-                            )}
-                            <div style={{ padding: '8px 10px' }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{SLOT_LABELS[slot]}</div>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, marginTop: 2 }}>{match.recipe.name}</div>
+                    <div data-slot-list style={{ display: openSlot == null ? 'grid' : 'none', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+                      {slotRecipes.map(({ slot, matches }) => {
+                        const slotId = `${w.week_number}-${slot}`
+                        return (
+                          <button key={slot} data-slot-trigger={slotId} onClick={() => setOpenSlot(slotId)}
+                            style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 10, border: `1px solid ${C.rule}`, background: C.bg, cursor: 'pointer' }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{SLOT_LABELS[slot]}</div>
+                            <div style={{ fontSize: 11.5, color: matches.length ? C.accent : C.muted, marginTop: 4, fontWeight: 600 }}>
+                              {matches.length ? `${matches.length} recipe${matches.length === 1 ? '' : 's'}` : `Not detected yet — ${coachFirst} will add some.`}
                             </div>
                           </button>
-                        ) : (
-                          <div key={slot} style={{ padding: '10px 10px', borderRadius: 12, border: `1px dashed ${C.rule}` }}>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{SLOT_LABELS[slot]}</div>
-                            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Not detected yet — {coachFirst} will add one.</div>
-                          </div>
                         )
-                      ))}
+                      })}
                     </div>
+                    {slotRecipes.map(({ slot, matches }) => {
+                      const slotId = `${w.week_number}-${slot}`
+                      return (
+                      <div key={slot} data-slot-body={slotId} style={{ display: openSlot === slotId ? 'block' : 'none' }}>
+                        <button data-slot-back onClick={() => setOpenSlot(null)}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: C.accent, fontSize: 12.5, fontWeight: 700, padding: 0, marginBottom: 12 }}>
+                          ← Back to meal slots
+                        </button>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 10 }}>{SLOT_LABELS[slot]} — picked for your plan</div>
+                        {matches.length > 0 ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
+                            {matches.map((m) => (
+                              <button key={m.recipe.id} data-recipe-trigger={m.recipe.id} onClick={() => setOpenRecipeId(m.recipe.id)}
+                                style={{ textAlign: 'left', padding: 0, borderRadius: 12, border: `1px solid ${C.rule}`, background: C.bg, overflow: 'hidden', cursor: 'pointer' }}>
+                                {combinedImages.get(m.recipe.id) ? (
+                                  <img src={combinedImages.get(m.recipe.id) ?? undefined} alt={m.recipe.name} style={{ width: '100%', height: 72, objectFit: 'cover', display: 'block' }} />
+                                ) : (
+                                  <div style={{ width: '100%', height: 72, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChefHat size={20} color={C.accent} /></div>
+                                )}
+                                <div style={{ padding: '8px 10px' }}>
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: C.ink }}>{m.recipe.name}</div>
+                                  {m.recipe.protein_label && <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{m.recipe.protein_label}</div>}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 12.5, color: C.muted }}>Nothing detected for {SLOT_LABELS[slot].toLowerCase()} yet — {coachFirst} will add some.</div>
+                        )}
+                      </div>
+                      )
+                    })}
                   </div>
                 ))}
               </div>
@@ -959,19 +1248,28 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               <div style={{ ...cardStyle, background: C.bg, marginBottom: 16 }}>
                 <div style={sectionTitleStyle}>Recipes for the week</div>
                 <p style={{ ...bulletStyle, color: C.muted, marginBottom: 14 }}>
-                  Auto-detected from the recipe bank by tag/keyword match against this patient&apos;s concern and diet notes — same set shown once per week. Pick a recipe below only where you want to override the auto-match, or where nothing was detected.
+                  Each slot pre-checks the recipes auto-detected by tag/keyword match against this patient&apos;s concern and diet notes. Check or uncheck any recipe to curate the exact bunch (4–5 recommended) shown to the patient for that slot.
                 </p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
                   {DAY_MEAL_SLOTS.map((slot) => {
-                    const auto = mealMatches[slot]?.[0]
                     const options = data.recipeBank.filter((r) => r.meal_type === slot)
+                    const checkedIds = new Set(curatedSlotIds(slot))
                     return (
                       <div key={slot}>
                         <div style={editLabelStyle}>{SLOT_LABELS[slot]}</div>
-                        <select style={editInputStyle} value={manualRecipes[slot] || ''} onChange={(e) => setManualRecipes((prev) => ({ ...prev, [slot]: e.target.value || undefined }))}>
-                          <option value="">{auto ? `— Auto-detected: ${auto.recipe.name} —` : '— Nothing auto-detected —'}</option>
-                          {options.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-                        </select>
+                        <div style={{ maxHeight: 180, overflowY: 'auto', border: `1px solid ${C.rule}`, borderRadius: 8, padding: '4px 10px', background: C.paper }}>
+                          {options.length === 0 && <div style={{ fontSize: 12, color: C.muted, padding: '8px 0' }}>No {SLOT_LABELS[slot].toLowerCase()} recipes in the bank yet.</div>}
+                          {options.map((r) => (
+                            <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', fontSize: 12.5, color: C.ink, cursor: 'pointer' }}>
+                              <input type="checkbox" checked={checkedIds.has(r.id)} onChange={(e) => {
+                                const base = curatedSlotIds(slot)
+                                const next = e.target.checked ? [...base, r.id] : base.filter((id) => id !== r.id)
+                                setManualRecipes((prev) => ({ ...prev, [slot]: next }))
+                              }} />
+                              {r.name}
+                            </label>
+                          ))}
+                        </div>
                       </div>
                     )
                   })}

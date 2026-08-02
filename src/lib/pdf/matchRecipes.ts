@@ -17,6 +17,19 @@ export type BankRecipe = {
   ingredients: string
   steps: string
   tags: string[]
+  // Optional "facts" fields, only present when a coach's source (e.g. a
+  // Canva recipe card) actually had them — never fabricated. A recipe
+  // missing all of these still renders fine; the dashboard just omits the
+  // facts/tools/notes sections for it instead of showing a placeholder.
+  eat_time?: string | null
+  prep_time?: string | null
+  cook_time?: string | null
+  difficulty?: string | null
+  health_score?: string | null
+  servings?: string | null
+  tools?: string[]
+  notes?: string[]
+  benefits?: string[]
 }
 export type RecipeMatch = { recipe: BankRecipe; why: string }
 

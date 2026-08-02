@@ -29,6 +29,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (typeof body.steps === 'string' && body.steps.trim()) update.steps = body.steps.trim()
   if (Array.isArray(body.tags)) update.tags = body.tags.map((t: string) => String(t).trim().toLowerCase()).filter(Boolean)
   else if (typeof body.tags === 'string') update.tags = body.tags.split(',').map((t: string) => t.trim().toLowerCase()).filter(Boolean)
+  if (typeof body.eat_time === 'string') update.eat_time = body.eat_time.trim() || null
+  if (typeof body.prep_time === 'string') update.prep_time = body.prep_time.trim() || null
+  if (typeof body.cook_time === 'string') update.cook_time = body.cook_time.trim() || null
+  if (typeof body.difficulty === 'string') update.difficulty = body.difficulty.trim() || null
+  if (typeof body.health_score === 'string') update.health_score = body.health_score.trim() || null
+  if (typeof body.servings === 'string') update.servings = body.servings.trim() || null
+  if (Array.isArray(body.tools)) update.tools = body.tools.map((t: string) => String(t).trim()).filter(Boolean)
+  else if (typeof body.tools === 'string') update.tools = body.tools.split('\n').map((t: string) => t.trim()).filter(Boolean)
+  if (Array.isArray(body.notes)) update.notes = body.notes.map((t: string) => String(t).trim()).filter(Boolean)
+  else if (typeof body.notes === 'string') update.notes = body.notes.split('\n').map((t: string) => t.trim()).filter(Boolean)
+  if (Array.isArray(body.benefits)) update.benefits = body.benefits.map((t: string) => String(t).trim()).filter(Boolean)
+  else if (typeof body.benefits === 'string') update.benefits = body.benefits.split('\n').map((t: string) => t.trim()).filter(Boolean)
 
   const { data, error } = await supabaseAdmin.from('recipe_bank').update(update).eq('id', id).select().single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

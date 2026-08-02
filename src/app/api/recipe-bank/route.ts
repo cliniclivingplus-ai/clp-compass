@@ -25,6 +25,21 @@ export async function POST(req: NextRequest) {
   const tags = Array.isArray(body.tags)
     ? body.tags.map((t: string) => String(t).trim().toLowerCase()).filter(Boolean)
     : String(body.tags || '').split(',').map((t: string) => t.trim().toLowerCase()).filter(Boolean)
+  const eatTime = String(body.eat_time || '').trim()
+  const prepTime = String(body.prep_time || '').trim()
+  const cookTime = String(body.cook_time || '').trim()
+  const difficulty = String(body.difficulty || '').trim()
+  const healthScore = String(body.health_score || '').trim()
+  const servings = String(body.servings || '').trim()
+  const tools = Array.isArray(body.tools)
+    ? body.tools.map((t: string) => String(t).trim()).filter(Boolean)
+    : String(body.tools || '').split('\n').map((t: string) => t.trim()).filter(Boolean)
+  const notes = Array.isArray(body.notes)
+    ? body.notes.map((t: string) => String(t).trim()).filter(Boolean)
+    : String(body.notes || '').split('\n').map((t: string) => t.trim()).filter(Boolean)
+  const benefits = Array.isArray(body.benefits)
+    ? body.benefits.map((t: string) => String(t).trim()).filter(Boolean)
+    : String(body.benefits || '').split('\n').map((t: string) => t.trim()).filter(Boolean)
 
   if (!name) return NextResponse.json({ error: 'Give the recipe a name' }, { status: 400 })
   if (!MEAL_TYPES.has(mealType)) return NextResponse.json({ error: 'meal_type must be breakfast, lunch, dinner, or snack' }, { status: 400 })
@@ -33,7 +48,12 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('recipe_bank')
-    .insert({ name, meal_type: mealType, protein_label: proteinLabel || null, ingredients, steps, tags })
+    .insert({
+      name, meal_type: mealType, protein_label: proteinLabel || null, ingredients, steps, tags,
+      eat_time: eatTime || null, prep_time: prepTime || null, cook_time: cookTime || null,
+      difficulty: difficulty || null, health_score: healthScore || null, servings: servings || null,
+      tools, notes, benefits,
+    })
     .select()
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
