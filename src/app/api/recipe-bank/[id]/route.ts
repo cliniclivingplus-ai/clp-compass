@@ -5,6 +5,10 @@ import { supabaseAdmin } from '@/lib/supabase'
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  const { data: existing } = await supabaseAdmin.from('recipe_bank').select('image_storage_path').eq('id', id).single()
+  if (existing?.image_storage_path) {
+    await supabaseAdmin.storage.from('recipe-images').remove([existing.image_storage_path])
+  }
   const { error } = await supabaseAdmin.from('recipe_bank').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
@@ -41,6 +45,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   else if (typeof body.notes === 'string') update.notes = body.notes.split('\n').map((t: string) => t.trim()).filter(Boolean)
   if (Array.isArray(body.benefits)) update.benefits = body.benefits.map((t: string) => String(t).trim()).filter(Boolean)
   else if (typeof body.benefits === 'string') update.benefits = body.benefits.split('\n').map((t: string) => t.trim()).filter(Boolean)
+  if (typeof body.image_url === 'string') {
+    update.image_url = body.image_url.trim() || null
+    update.image_storage_path = typeof body.image_storage_path === 'string' ? (body.image_storage_path.trim() || null) : null
+    // Replacing or clearing a recipe's photo shouldn't leave the old file
+    // orphaned in storage — same cleanup DELETE already does.
+    const { data: existing } = await supabaseAdmin.from('recipe_bank').select('image_storage_path').eq('id', id).single()
+    if (existing?.image_storage_path && existing.image_storage_path !== update.image_storage_path) {
+      await supabaseAdmin.storage.from('recipe-images').remove([existing.image_storage_path])
+    }
+  }
 
   const { data, error } = await supabaseAdmin.from('recipe_bank').update(update).eq('id', id).select().single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
