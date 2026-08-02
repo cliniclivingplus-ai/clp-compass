@@ -13,6 +13,9 @@
 // Cook Time: 10 mins
 // Difficulty: Easy
 // Health Score: 9/10
+// Image: https://example.com/photo.jpg   (a URL — upload the photo
+//                                          somewhere first, e.g. the Picture
+//                                          bank page, then paste its link)
 // Ingredients:
 // - moong sprouts
 // - moringa leaves
@@ -81,6 +84,7 @@ export type ParsedRecipe = {
   tools: string[]
   notes: string[]
   benefits: string[]
+  image_url: string
 }
 
 export type RecipeImportResult = {
@@ -135,6 +139,7 @@ export function parseRecipeBankText(raw: string): RecipeImportResult {
     let difficulty = ''
     let healthScore = ''
     let servings = ''
+    let imageUrl = ''
     let section: 'ingredients' | 'steps' | 'tools' | 'notes' | 'benefits' | null = null
     const ingredientLines: string[] = []
     const stepLines: string[] = []
@@ -154,6 +159,7 @@ export function parseRecipeBankText(raw: string): RecipeImportResult {
       const difficultyMatch = trimmed.match(/^difficulty:\s*(.+)$/i)
       const healthMatch = trimmed.match(/^health\s*score:\s*(.+)$/i)
       const servingsMatch = trimmed.match(/^servings:\s*(.+)$/i)
+      const imageMatch = trimmed.match(/^image(?:\s*url)?:\s*(\S+)$/i)
       if (mealMatch) { mealType = mealMatch[1].trim().toLowerCase(); continue }
       if (proteinMatch) { proteinLabel = proteinMatch[1].trim(); continue }
       if (tagsMatch) { tags = tagsMatch[1].split(',').map((t) => t.trim().toLowerCase()).filter(Boolean); continue }
@@ -163,6 +169,7 @@ export function parseRecipeBankText(raw: string): RecipeImportResult {
       if (difficultyMatch) { difficulty = difficultyMatch[1].trim(); continue }
       if (healthMatch) { healthScore = healthMatch[1].trim(); continue }
       if (servingsMatch) { servings = servingsMatch[1].trim(); continue }
+      if (imageMatch) { imageUrl = imageMatch[1].trim(); continue }
       if (/^ingredients:?\s*$/i.test(trimmed)) { section = 'ingredients'; continue }
       if (/^steps:?\s*$/i.test(trimmed)) { section = 'steps'; continue }
       if (/^tools:?\s*$/i.test(trimmed)) { section = 'tools'; continue }
@@ -195,6 +202,7 @@ export function parseRecipeBankText(raw: string): RecipeImportResult {
       tools: toolLines,
       notes: noteLines,
       benefits: benefitLines,
+      image_url: imageUrl,
     })
   })
 

@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
   const benefits = Array.isArray(body.benefits)
     ? body.benefits.map((t: string) => String(t).trim()).filter(Boolean)
     : String(body.benefits || '').split('\n').map((t: string) => t.trim()).filter(Boolean)
+  const imageUrl = String(body.image_url || '').trim()
+  const imageStoragePath = String(body.image_storage_path || '').trim()
 
   if (!name) return NextResponse.json({ error: 'Give the recipe a name' }, { status: 400 })
   if (!MEAL_TYPES.has(mealType)) return NextResponse.json({ error: 'meal_type must be breakfast, lunch, dinner, or snack' }, { status: 400 })
@@ -53,6 +55,7 @@ export async function POST(req: NextRequest) {
       eat_time: eatTime || null, prep_time: prepTime || null, cook_time: cookTime || null,
       difficulty: difficulty || null, health_score: healthScore || null, servings: servings || null,
       tools, notes, benefits,
+      image_url: imageUrl || null, image_storage_path: imageStoragePath || null,
     })
     .select()
     .single()

@@ -30,6 +30,7 @@ export type BankRecipe = {
   tools?: string[]
   notes?: string[]
   benefits?: string[]
+  image_url?: string | null // coach's own photo for this recipe — takes priority over the tag-matched picture bank
 }
 export type RecipeMatch = { recipe: BankRecipe; why: string }
 

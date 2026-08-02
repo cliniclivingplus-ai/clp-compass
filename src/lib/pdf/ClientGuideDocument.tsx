@@ -46,6 +46,7 @@ export type GuideData = {
   imageBank: GuideImage[] // coach-uploaded, tag-matched into sections that genuinely fit — never forced
   recipeBank: BankRecipe[] // coach-built recipes, tag/keyword-matched to this patient's real concern & diet notes
   manualRecipes: Partial<Record<DayMealSlot, string[]>> // coach's curated recipe-id list per slot; when set, replaces the auto-detected picks for that slot entirely
+  theme: string // coach-picked color palette id for the live dashboard & downloaded plan — falls back to 'classic' if unset or unrecognized
 }
 
 const cover = StyleSheet.create({

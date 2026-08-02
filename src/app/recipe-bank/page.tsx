@@ -14,6 +14,7 @@ type Recipe = {
   id: string; name: string; meal_type: string; protein_label: string | null; ingredients: string; steps: string; tags: string[]
   eat_time: string | null; prep_time: string | null; cook_time: string | null; difficulty: string | null; health_score: string | null; servings: string | null
   tools: string[]; notes: string[]; benefits: string[]
+  image_url: string | null; image_storage_path: string | null
 }
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const
@@ -42,6 +43,10 @@ export default function RecipeBankPage() {
   const [healthScore, setHealthScore] = useState('')
   const [tools, setTools] = useState('')
   const [notes, setNotes] = useState('')
+  const [servings, setServings] = useState('')
+  const [benefits, setBenefits] = useState('')
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [deletingId, setDeletingId] = useState('')
@@ -49,7 +54,10 @@ export default function RecipeBankPage() {
   const [editDraft, setEditDraft] = useState<{
     name: string; meal_type: string; protein_label: string; ingredients: string; steps: string; tags: string
     eat_time: string; prep_time: string; cook_time: string; difficulty: string; health_score: string; tools: string; notes: string
+    servings: string; benefits: string; image_url: string; image_storage_path: string
   } | null>(null)
+  const [editImageFile, setEditImageFile] = useState<File | null>(null)
+  const [editImagePreview, setEditImagePreview] = useState('')
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState('')
   const [showFormat, setShowFormat] = useState(false)
@@ -70,16 +78,31 @@ export default function RecipeBankPage() {
       .finally(() => setLoading(false))
   }, [])
 
+  async function uploadRecipeImage(file: File): Promise<{ image_url: string; image_storage_path: string }> {
+    const form = new FormData()
+    form.append('file', file)
+    const r = await fetch('/api/recipe-bank/image', { method: 'POST', body: form })
+    const j = await r.json()
+    if (!r.ok) throw new Error(j.error || 'Image upload failed')
+    return j
+  }
+
   async function save() {
     if (!name.trim() || !ingredients.trim() || !steps.trim()) return
     setSaving(true); setSaveError('')
     try {
+      let image_url = ''; let image_storage_path = ''
+      if (imageFile) {
+        const uploaded = await uploadRecipeImage(imageFile)
+        image_url = uploaded.image_url; image_storage_path = uploaded.image_storage_path
+      }
       const r = await fetch('/api/recipe-bank', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(), meal_type: mealType, protein_label: proteinLabel.trim(), ingredients: ingredients.trim(), steps: steps.trim(), tags: tags.trim(),
           eat_time: eatTime.trim(), prep_time: prepTime.trim(), cook_time: cookTime.trim(), difficulty: difficulty.trim(), health_score: healthScore.trim(),
-          tools: tools.trim(), notes: notes.trim(),
+          tools: tools.trim(), notes: notes.trim(), servings: servings.trim(), benefits: benefits.trim(),
+          image_url, image_storage_path,
         }),
       })
       const j = await r.json()
@@ -87,8 +110,9 @@ export default function RecipeBankPage() {
       setRecipes((prev) => [j, ...prev])
       setName(''); setProteinLabel(''); setIngredients(''); setSteps(''); setTags('')
       setEatTime(''); setPrepTime(''); setCookTime(''); setDifficulty(''); setHealthScore(''); setTools(''); setNotes('')
-    } catch {
-      setSaveError('Network error — try again.')
+      setServings(''); setBenefits(''); setImageFile(null); setImagePreview('')
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Network error — try again.')
     } finally { setSaving(false) }
   }
 
@@ -128,7 +152,7 @@ export default function RecipeBankPage() {
   }
 
   function startEdit(r: Recipe) {
-    setEditingId(r.id); setEditError('')
+    setEditingId(r.id); setEditError(''); setEditImageFile(null); setEditImagePreview('')
     // Clean split/rejoin, one item per line — so a recipe with doubled
     // bullets or PDF line-wrap fragments (splitRecipeLines already merges
     // those for display) shows up ready to fix, not still fragmented.
@@ -140,6 +164,8 @@ export default function RecipeBankPage() {
       eat_time: r.eat_time || '', prep_time: r.prep_time || '', cook_time: r.cook_time || '',
       difficulty: r.difficulty || '', health_score: r.health_score || '',
       tools: (r.tools || []).join('\n'), notes: (r.notes || []).join('\n'),
+      servings: r.servings || '', benefits: (r.benefits || []).join('\n'),
+      image_url: r.image_url || '', image_storage_path: r.image_storage_path || '',
     })
   }
 
@@ -147,16 +173,21 @@ export default function RecipeBankPage() {
     if (!editDraft) return
     setEditSaving(true); setEditError('')
     try {
+      let draft = editDraft
+      if (editImageFile) {
+        const uploaded = await uploadRecipeImage(editImageFile)
+        draft = { ...draft, image_url: uploaded.image_url, image_storage_path: uploaded.image_storage_path }
+      }
       const r = await fetch(`/api/recipe-bank/${id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editDraft),
+        body: JSON.stringify(draft),
       })
       const j = await r.json()
       if (!r.ok) { setEditError(j.error || 'Save failed'); return }
       setRecipes((prev) => prev.map((rc) => (rc.id === id ? j : rc)))
-      setEditingId(''); setEditDraft(null)
-    } catch {
-      setEditError('Network error — try again.')
+      setEditingId(''); setEditDraft(null); setEditImageFile(null); setEditImagePreview('')
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Network error — try again.')
     } finally { setEditSaving(false) }
   }
 
@@ -227,6 +258,21 @@ export default function RecipeBankPage() {
           </div>
         </div>
         <div style={{ marginBottom: 10 }}>
+          <label style={labelStyle}>Photo (optional)</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {imagePreview && <img src={imagePreview} alt="" style={{ width: 52, height: 52, borderRadius: 8, objectFit: 'cover', border: `1px solid ${C.line}` }} />}
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.line}`, background: '#fff', color: C.ink, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+              <UploadCloud size={13} /> {imagePreview ? 'Change photo' : 'Add photo'}
+              <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) { setImageFile(f); setImagePreview(URL.createObjectURL(f)) } }} />
+            </label>
+            {imagePreview && (
+              <button type="button" onClick={() => { setImageFile(null); setImagePreview('') }}
+                style={{ background: 'none', border: 'none', color: C.muted, fontSize: 12, cursor: 'pointer' }}>Remove</button>
+            )}
+          </div>
+        </div>
+        <div style={{ marginBottom: 10 }}>
           <label style={labelStyle}>Ingredients</label>
           <textarea style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.5 }} rows={3} value={ingredients} onChange={(e) => setIngredients(e.target.value)} placeholder="One per line — moong sprouts, moringa leaves, besan, ..." />
         </div>
@@ -265,8 +311,12 @@ export default function RecipeBankPage() {
                 <label style={labelStyle}>Health score</label>
                 <input style={inputStyle} value={healthScore} onChange={(e) => setHealthScore(e.target.value)} placeholder="9/10" />
               </div>
+              <div>
+                <label style={labelStyle}>Servings</label>
+                <input style={inputStyle} value={servings} onChange={(e) => setServings(e.target.value)} placeholder="1 serving" />
+              </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
               <div>
                 <label style={labelStyle}>Tools (one per line)</label>
                 <textarea style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.5 }} rows={2} value={tools} onChange={(e) => setTools(e.target.value)} placeholder="Blender&#10;Tawa" />
@@ -275,6 +325,10 @@ export default function RecipeBankPage() {
                 <label style={labelStyle}>Notes (one per line)</label>
                 <textarea style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.5 }} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Best eaten fresh." />
               </div>
+            </div>
+            <div>
+              <label style={labelStyle}>Why it works (one per line — e.g. &quot;Berries — improve cognitive function&quot;)</label>
+              <textarea style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.5 }} rows={2} value={benefits} onChange={(e) => setBenefits(e.target.value)} placeholder="Berries — improve cognitive function" />
             </div>
           </div>
         )}
@@ -328,6 +382,23 @@ export default function RecipeBankPage() {
                           <label style={labelStyle}>Tags (comma-separated)</label>
                           <input style={inputStyle} value={editDraft.tags} onChange={(e) => setEditDraft({ ...editDraft, tags: e.target.value })} />
                         </div>
+                        <div style={{ marginBottom: 10 }}>
+                          <label style={labelStyle}>Photo</label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            {(editImagePreview || editDraft.image_url) && (
+                              <img src={editImagePreview || editDraft.image_url} alt="" style={{ width: 52, height: 52, borderRadius: 8, objectFit: 'cover', border: `1px solid ${C.line}` }} />
+                            )}
+                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.line}`, background: '#fff', color: C.ink, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                              <UploadCloud size={13} /> {editImagePreview || editDraft.image_url ? 'Change photo' : 'Add photo'}
+                              <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }}
+                                onChange={(e) => { const f = e.target.files?.[0]; if (f) { setEditImageFile(f); setEditImagePreview(URL.createObjectURL(f)) } }} />
+                            </label>
+                            {(editImagePreview || editDraft.image_url) && (
+                              <button type="button" onClick={() => { setEditImageFile(null); setEditImagePreview(''); setEditDraft({ ...editDraft, image_url: '', image_storage_path: '' }) }}
+                                style={{ background: 'none', border: 'none', color: C.muted, fontSize: 12, cursor: 'pointer' }}>Remove</button>
+                            )}
+                          </div>
+                        </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 10 }}>
                           <div>
                             <label style={labelStyle}>Eat time</label>
@@ -349,6 +420,10 @@ export default function RecipeBankPage() {
                             <label style={labelStyle}>Health score</label>
                             <input style={inputStyle} value={editDraft.health_score} onChange={(e) => setEditDraft({ ...editDraft, health_score: e.target.value })} />
                           </div>
+                          <div>
+                            <label style={labelStyle}>Servings</label>
+                            <input style={inputStyle} value={editDraft.servings} onChange={(e) => setEditDraft({ ...editDraft, servings: e.target.value })} />
+                          </div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                           <div>
@@ -359,6 +434,10 @@ export default function RecipeBankPage() {
                             <label style={labelStyle}>Notes (one per line)</label>
                             <textarea style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.5 }} rows={2} value={editDraft.notes} onChange={(e) => setEditDraft({ ...editDraft, notes: e.target.value })} />
                           </div>
+                        </div>
+                        <div style={{ marginBottom: 10 }}>
+                          <label style={labelStyle}>Why it works (one per line)</label>
+                          <textarea style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.5 }} rows={2} value={editDraft.benefits} onChange={(e) => setEditDraft({ ...editDraft, benefits: e.target.value })} />
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <button onClick={() => saveEdit(r.id)} disabled={editSaving}
@@ -375,7 +454,9 @@ export default function RecipeBankPage() {
                     )
                   }
                   return (
-                    <div key={r.id} style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: '14px 16px' }}>
+                    <div key={r.id} style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: '14px 16px', display: 'flex', gap: 12 }}>
+                      {r.image_url && <img src={r.image_url} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />}
+                      <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{r.name}{r.protein_label ? <span style={{ fontSize: 11.5, fontWeight: 600, color: C.green, marginLeft: 8 }}>{r.protein_label}</span> : null}</div>
                         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -400,6 +481,7 @@ export default function RecipeBankPage() {
                           {r.tags.map((t) => <span key={t} style={{ fontSize: 10.5, fontWeight: 600, color: C.greenDeep, background: C.greenSoft, border: `1px solid ${C.greenBorder}`, borderRadius: 10, padding: '2px 8px' }}>{t}</span>)}
                         </div>
                       )}
+                      </div>
                     </div>
                   )
                 })}

@@ -9,10 +9,48 @@ import type { GuideData, DayMealSlot } from '@/lib/pdf/ClientGuideDocument'
 import { splitRecipeLines } from '@/lib/recipeText'
 import { FOOD_PLATES, GROCERY_CATEGORIES, type MealType } from '@/lib/foodPlates'
 
+// Every color used anywhere in this file is one of these 10 tokens — so
+// theming is just swapping which literal hex values `--clp-*` resolves to
+// (in the <style> tag rendered at the top of #dashboard-export-root), not a
+// refactor of the ~200 call sites below. Since the exported static HTML is a
+// clone of this same DOM, the chosen palette carries over automatically.
 const C = {
-  bg: '#F7EEE1', paper: '#FBF5EA', ink: '#2C2418', inkSoft: '#4A4034',
-  accent: '#B1512E', accentSoft: '#E7DAC0', rule: '#D8C6A4', muted: '#948A76', green: '#538A22', greenDeep: '#2F5214',
+  bg: 'var(--clp-bg)', paper: 'var(--clp-paper)', ink: 'var(--clp-ink)', inkSoft: 'var(--clp-ink-soft)',
+  accent: 'var(--clp-accent)', accentSoft: 'var(--clp-accent-soft)', rule: 'var(--clp-rule)', muted: 'var(--clp-muted)',
+  green: 'var(--clp-green)', greenDeep: 'var(--clp-green-deep)',
 }
+type PaletteTokens = {
+  bg: string; paper: string; ink: string; inkSoft: string
+  accent: string; accentSoft: string; rule: string; muted: string; green: string; greenDeep: string
+}
+// A handful of coach-selectable looks — "green"/"greenDeep" stay in a green
+// family across every palette (used for done/success states throughout, so
+// swapping them would make checkmarks read wrong), while "accent" carries
+// each palette's actual personality.
+const PALETTES: Record<string, PaletteTokens> = {
+  classic: {
+    bg: '#F7EEE1', paper: '#FBF5EA', ink: '#2C2418', inkSoft: '#4A4034',
+    accent: '#B1512E', accentSoft: '#E7DAC0', rule: '#D8C6A4', muted: '#948A76', green: '#538A22', greenDeep: '#2F5214',
+  },
+  sage: {
+    bg: '#F7F3EA', paper: '#FFFFFF', ink: '#2B2B28', inkSoft: '#4F5A4A',
+    accent: '#C17A52', accentSoft: '#F3E2D3', rule: '#E4DDCD', muted: '#6B6A63', green: '#4F6F52', greenDeep: '#2E4530',
+  },
+  ocean: {
+    bg: '#EFF5F3', paper: '#FFFFFF', ink: '#1F2E2B', inkSoft: '#3F5450',
+    accent: '#2F6E73', accentSoft: '#D9EDEE', rule: '#CFE3E1', muted: '#6D8481', green: '#3F7D4A', greenDeep: '#265130',
+  },
+  berry: {
+    bg: '#FBF1EE', paper: '#FFFFFF', ink: '#2B2220', inkSoft: '#5C453F',
+    accent: '#8C4B5A', accentSoft: '#F1DCE0', rule: '#E8D3CC', muted: '#8F7A75', green: '#4C7A4F', greenDeep: '#2C4A2E',
+  },
+}
+const PALETTE_LIST: { id: string; label: string }[] = [
+  { id: 'classic', label: 'Classic' },
+  { id: 'sage', label: 'Sage' },
+  { id: 'ocean', label: 'Ocean' },
+  { id: 'berry', label: 'Berry' },
+]
 // One color per food-group slot in a meal plate — cycled by index, matches
 // across the wheel diagram and its pill chips so a category reads the same
 // color in both places.
@@ -220,7 +258,7 @@ function RecipeBody({ recipe, imageUrl }: { recipe: RecipeMatch['recipe']; image
 
       <div>
         {recipe.protein_label && (
-          <div style={{ display: 'inline-block', fontSize: 10.5, fontWeight: 700, color: C.green, background: `${C.green}18`, borderRadius: 20, padding: '4px 10px', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{recipe.protein_label}</div>
+          <div style={{ display: 'inline-block', fontSize: 10.5, fontWeight: 700, color: C.green, background: `color-mix(in srgb, ${C.green} 15%, transparent)`, borderRadius: 20, padding: '4px 10px', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{recipe.protein_label}</div>
         )}
         <div style={{ fontSize: 22, fontWeight: 700, color: C.ink, paddingRight: 28, marginBottom: 20, lineHeight: 1.15 }}>{recipe.name}</div>
 
@@ -367,7 +405,7 @@ function StatCard({ icon, value, label, color, dataStat, dataStatLabel }: {
 }) {
   return (
     <div style={{ flex: '1 1 130px', background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 12, padding: '12px 14px' }}>
-      <div style={{ width: 26, height: 26, borderRadius: 7, background: `${color}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>{icon}</div>
+      <div style={{ width: 26, height: 26, borderRadius: 7, background: `color-mix(in srgb, ${color} 13%, transparent)`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>{icon}</div>
       <div data-stat={dataStat} style={{ fontSize: 19, fontWeight: 700, color: C.ink }}>{value}</div>
       <div data-stat-label={dataStatLabel} style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{label}</div>
     </div>
@@ -547,10 +585,10 @@ function clpSetGoalVisual(el, done){
 function clpSetText(sel, val){ var el = document.querySelector(sel); if (el) el.textContent = val; }
 
 // Recomputes every number in "Track your progress" (stat cards + one ring
-// per month) and every week tile's "X/Y accomplished" straight from the
-// current checkin list — the exact same derivation the live React page
-// does — so a toggle anywhere in the downloaded file is reflected
-// everywhere else in that same file, not just on the row that was clicked.
+// per month) straight from the current checkin list — the exact same
+// derivation the live React page does — so a toggle anywhere in the
+// downloaded file is reflected everywhere else in that same file, not just
+// on the row that was clicked.
 function renderProgressExport(){
   var list = clpGetCheckins();
   var dateSet = {};
@@ -574,8 +612,6 @@ function renderProgressExport(){
       var wDone = 0;
       for (var i = 0; i < w.totalActions; i++) { if (doneKeySet[w.week_number + ':' + i]) wDone++; }
       done += wDone;
-      var wEl = document.querySelector('[data-week-progress="' + w.week_number + '"]');
-      if (wEl) wEl.textContent = wDone + '/' + w.totalActions + ' accomplished';
     });
     var pct = total > 0 ? Math.round((done / total) * 100) : 0;
     var clamped = Math.max(0, Math.min(100, pct));
@@ -669,6 +705,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [lifestyleText, setLifestyleText] = useState(data.roadmap.lifestyle_guidelines)
   const [editWeeks, setEditWeeks] = useState<WeeklyPlan[]>(data.roadmap.weekly_schedule)
   const [manualRecipes, setManualRecipes] = useState<Partial<Record<DayMealSlot, string[]>>>(data.manualRecipes || {})
+  const [theme, setTheme] = useState(data.theme && PALETTES[data.theme] ? data.theme : 'classic')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -692,7 +729,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             lifestyle_guidelines: lifestyleText,
-            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes },
+            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes, theme },
             weekly_schedule: editWeeks.map((w) => ({ ...w, actions: (w.actions || []).map((a) => a.trim()).filter(Boolean) })),
           }),
         }),
@@ -802,6 +839,9 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     const images = new Map<string, string | null>()
     for (const meal of ['breakfast', 'lunch', 'dinner', 'snack'] as const) {
       for (const m of selection[meal]) {
+        // A recipe's own photo (set directly by the coach) always wins over
+        // a tag-matched guess from the picture bank.
+        if (m.recipe.image_url) { images.set(m.recipe.id, m.recipe.image_url); continue }
         const img = matchGuideImageDistinct(`${m.recipe.name} ${m.recipe.tags.join(' ')}`, data.imageBank, used)
         images.set(m.recipe.id, img?.image_url ?? null)
       }
@@ -856,6 +896,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const combinedImages = new Map(mealImages)
   slotRecipes.forEach((s) => s.matches.forEach((m) => {
     if (!combinedImages.has(m.recipe.id)) {
+      if (m.recipe.image_url) { combinedImages.set(m.recipe.id, m.recipe.image_url); return }
       const img = matchGuideImageDistinct(`${m.recipe.name} ${m.recipe.tags.join(' ')}`, data.imageBank, new Set())
       combinedImages.set(m.recipe.id, img?.image_url ?? null)
     }
@@ -947,7 +988,12 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
 
   return (
     <div id="dashboard-export-root" style={{ background: C.bg, minHeight: '100vh' }}>
-      <style>{`html{scroll-behavior:smooth;}`}</style>
+      <style>{`html{scroll-behavior:smooth;}
+#dashboard-export-root{
+  --clp-bg:${PALETTES[theme].bg}; --clp-paper:${PALETTES[theme].paper}; --clp-ink:${PALETTES[theme].ink}; --clp-ink-soft:${PALETTES[theme].inkSoft};
+  --clp-accent:${PALETTES[theme].accent}; --clp-accent-soft:${PALETTES[theme].accentSoft}; --clp-rule:${PALETTES[theme].rule}; --clp-muted:${PALETTES[theme].muted};
+  --clp-green:${PALETTES[theme].green}; --clp-green-deep:${PALETTES[theme].greenDeep};
+}`}</style>
       {editable && <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>}
       {/* Table of contents — pinned to the top, same 15 sections as the PDF.
           Plain anchor links (no JS) so this works in the downloaded static
@@ -990,18 +1036,13 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                 {/* Week list — 4 compact blocks; tap one for its detail below */}
                 <div data-week-list style={{ display: openWeek == null ? 'block' : 'none' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-                    {m.weeks.map((w: WeeklyPlan) => {
-                      const total = w.actions?.length ?? 0
-                      const doneCount = (w.actions ?? []).filter((_, i) => checkedSet.has(`${w.week_number}:${i}:${today}`)).length
-                      return (
-                        <button key={w.week_number} data-week-trigger={w.week_number} onClick={() => { setOpenWeek(w.week_number); setOpenDay(null); setOpenSlot(null) }}
-                          style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 10, border: `1px solid ${C.rule}`, background: C.bg, cursor: 'pointer' }}>
-                          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>Week {w.week_number}</div>
-                          <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{w.focus_theme}</div>
-                          {total > 0 && <div data-week-progress={w.week_number} style={{ fontSize: 11, color: C.accent, marginTop: 6, fontWeight: 600 }}>{doneCount}/{total} accomplished</div>}
-                        </button>
-                      )
-                    })}
+                    {m.weeks.map((w: WeeklyPlan) => (
+                      <button key={w.week_number} data-week-trigger={w.week_number} onClick={() => { setOpenWeek(w.week_number); setOpenDay(null); setOpenSlot(null) }}
+                        style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 10, border: `1px solid ${C.rule}`, background: C.bg, cursor: 'pointer' }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>Week {w.week_number}</div>
+                        <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{w.focus_theme}</div>
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -1128,6 +1169,20 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             <div style={{ maxWidth: 480, marginLeft: 'auto', marginRight: 'auto', marginTop: 10, textAlign: 'left' }}>
               <div style={editLabelStyle}>Goal (shown at the top)</div>
               <input style={editInputStyle} value={goalLabel} onChange={(e) => setGoalLabel(e.target.value)} placeholder="e.g. Steady energy, no more 4pm crashes" />
+              <div style={{ ...editLabelStyle, marginTop: 14 }}>Plan look</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {PALETTE_LIST.map((p) => (
+                  <button key={p.id} onClick={() => setTheme(p.id)}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, cursor: 'pointer',
+                      border: theme === p.id ? `2px solid ${PALETTES[p.id].accent}` : `1px solid ${C.rule}`,
+                      background: theme === p.id ? PALETTES[p.id].accentSoft : '#fff', fontSize: 12, fontWeight: 700, color: PALETTES[p.id].ink,
+                    }}>
+                    <span style={{ width: 12, height: 12, borderRadius: '50%', background: PALETTES[p.id].accent, flexShrink: 0 }} />
+                    {p.label}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
             <div style={{ fontSize: 13.5, color: C.inkSoft, marginTop: 6, maxWidth: 480, marginLeft: 'auto', marginRight: 'auto' }}>{goalLabel}</div>

@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
       eat_time: r.eat_time || null, prep_time: r.prep_time || null, cook_time: r.cook_time || null,
       difficulty: r.difficulty || null, health_score: r.health_score || null, servings: r.servings || null,
       tools: r.tools, notes: r.notes, benefits: r.benefits,
+      image_url: r.image_url || null,
     })))
     .select()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
