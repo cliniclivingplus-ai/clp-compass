@@ -47,7 +47,7 @@ export type GuideData = {
   recipeBank: BankRecipe[] // coach-built recipes, tag/keyword-matched to this patient's real concern & diet notes
   manualRecipes: Partial<Record<DayMealSlot, string[]>> // coach's curated recipe-id list per slot; when set, replaces the auto-detected picks for that slot entirely
   theme: string // coach-picked color palette id for the live dashboard & downloaded plan — falls back to 'classic' if unset or unrecognized
-  confirmedSupplements: { name: string; dose: string; timing: string; duration: string }[] // from a patient_reports row a coach explicitly reviewed & confirmed — never shown pre-confirmation
+  confirmedSupplements: { name: string; dose: string; timing: string; duration: string; notes: string }[] // from a patient_reports row a coach explicitly reviewed & confirmed — never shown pre-confirmation
 }
 
 const cover = StyleSheet.create({

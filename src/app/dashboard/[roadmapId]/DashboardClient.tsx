@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo, useEffect, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, Fragment, type ReactNode } from 'react'
 import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp, ChevronDown, ChevronRight } from 'lucide-react'
 import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoadmap'
 import { parseNutritionistGuidelines } from '@/lib/pdf/parseNutritionistGuidelines'
@@ -1463,14 +1463,14 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             <div style={{ fontSize: 11.5, color: C.muted }}>You&apos;ll get this alongside your recipes each week, with a short note on why it was chosen for you specifically.</div>
           </div>
 
-          {/* Supplements — a structured table when a coach has confirmed an
-              extracted prescription list (see ReportsTab.tsx's review step),
-              plus any free-text guidance from the roadmap itself. Never
-              shows unconfirmed/draft dosing data. */}
+          {/* Supplements — only the structured table from a coach-confirmed
+              extracted prescription list (see ReportsTab.tsx's review step).
+              Never shows unconfirmed/draft dosing data, and no free-text
+              fallback — a table or nothing. */}
           <div id="supplements" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
             <div style={sectionTitleStyle}><Pill size={18} color={C.accent} /> Your supplement plan</div>
-            {data.confirmedSupplements.length > 0 && (
-              <div style={{ overflowX: 'auto', marginBottom: parsedGuidelines.supplements.length > 0 ? 16 : 10 }}>
+            {data.confirmedSupplements.length > 0 ? (
+              <div style={{ overflowX: 'auto', marginBottom: 10 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ textAlign: 'left', color: C.muted, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
@@ -1482,22 +1482,26 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   </thead>
                   <tbody>
                     {data.confirmedSupplements.map((s, i) => (
-                      <tr key={i} style={{ borderTop: `1px solid ${C.rule}` }}>
-                        <td style={{ padding: '9px 10px 9px 0', fontWeight: 700, color: C.ink }}>{s.name}</td>
-                        <td style={{ padding: '9px 10px 9px 0', color: C.ink }}>{s.dose || '—'}</td>
-                        <td style={{ padding: '9px 10px 9px 0', color: C.ink }}>{s.timing || '—'}</td>
-                        <td style={{ padding: '9px 0', color: C.ink }}>{s.duration || '—'}</td>
-                      </tr>
+                      <Fragment key={i}>
+                        <tr style={{ borderTop: `1px solid ${C.rule}` }}>
+                          <td style={{ padding: '9px 10px 9px 0', fontWeight: 700, color: C.ink }}>{s.name}</td>
+                          <td style={{ padding: '9px 10px 9px 0', color: C.ink }}>{s.dose || '—'}</td>
+                          <td style={{ padding: '9px 10px 9px 0', color: C.ink }}>{s.timing || '—'}</td>
+                          <td style={{ padding: '9px 0', color: C.ink }}>{s.duration || '—'}</td>
+                        </tr>
+                        {s.notes && (
+                          <tr>
+                            <td colSpan={4} style={{ padding: '0 0 9px 0', color: C.accent, fontSize: 11.5 }}>⚠ {s.notes}</td>
+                          </tr>
+                        )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
               </div>
-            )}
-            {parsedGuidelines.supplements.length > 0 ? (
-              parsedGuidelines.supplements.map((s, i) => <p key={i} style={bulletStyle}>• {renderMarkdownBold(s)}</p>)
-            ) : data.confirmedSupplements.length === 0 ? (
+            ) : (
               <p style={bulletStyle}>No supplements on file yet — {coachFirst} will add these once your plan calls for them.</p>
-            ) : null}
+            )}
             <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8 }}>Don&apos;t start, stop, or change a dose without confirming with {coachFirst} first.</div>
           </div>
 

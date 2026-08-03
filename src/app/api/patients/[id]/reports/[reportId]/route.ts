@@ -25,6 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         name: String(s.name).trim(),
         dose: typeof s.dose === 'string' ? s.dose.trim() : '',
         timing: typeof s.timing === 'string' ? s.timing.trim() : '',
+        notes: typeof s.notes === 'string' ? s.notes.trim() : '',
         duration: typeof s.duration === 'string' ? s.duration.trim() : '',
       }))
   }

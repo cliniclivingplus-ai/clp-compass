@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { Upload, Loader2, FileText, Trash2, AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Pill, Plus, X } from 'lucide-react'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 
@@ -11,7 +11,7 @@ const C = {
 
 const REPORT_TYPES = ['Gut Microbiome', 'Blood Report', 'Hormone Panel', 'Supplement Prescription', 'Other']
 
-type Supplement = { name: string; dose: string; timing: string; duration: string }
+type Supplement = { name: string; dose: string; timing: string; duration: string; notes: string }
 
 type Report = {
   id: string
@@ -49,7 +49,7 @@ function SupplementReview({ report, patientId, onUpdated }: { report: Report; pa
     setRows((prev) => prev.filter((_, idx) => idx !== i))
   }
   function addRow() {
-    setRows((prev) => [...prev, { name: '', dose: '', timing: '', duration: '' }])
+    setRows((prev) => [...prev, { name: '', dose: '', timing: '', duration: '', notes: '' }])
   }
 
   async function save(confirm: boolean) {
@@ -90,12 +90,16 @@ function SupplementReview({ report, patientId, onUpdated }: { report: Report; pa
         <>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {rows.map((s, i) => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1.2fr 1fr auto', gap: 6, alignItems: 'center' }}>
-                <input style={cellInputStyle} value={s.name} placeholder="Name" onChange={(e) => updateRow(i, { name: e.target.value })} />
-                <input style={cellInputStyle} value={s.dose} placeholder="Dose" onChange={(e) => updateRow(i, { dose: e.target.value })} />
-                <input style={cellInputStyle} value={s.timing} placeholder="When to take" onChange={(e) => updateRow(i, { timing: e.target.value })} />
-                <input style={cellInputStyle} value={s.duration} placeholder="Duration" onChange={(e) => updateRow(i, { duration: e.target.value })} />
-                <button onClick={() => removeRow(i)} style={{ background: 'none', border: 'none', color: C.danger, cursor: 'pointer', padding: 4 }}><X size={14} /></button>
+              <div key={i} style={{ borderBottom: i < rows.length - 1 ? `1px solid ${C.line}` : 'none', paddingBottom: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1.2fr 1fr auto', gap: 6, alignItems: 'center' }}>
+                  <input style={cellInputStyle} value={s.name} placeholder="Name" onChange={(e) => updateRow(i, { name: e.target.value })} />
+                  <input style={cellInputStyle} value={s.dose} placeholder="Dose / frequency" onChange={(e) => updateRow(i, { dose: e.target.value })} />
+                  <input style={cellInputStyle} value={s.timing} placeholder="When to take" onChange={(e) => updateRow(i, { timing: e.target.value })} />
+                  <input style={cellInputStyle} value={s.duration} placeholder="Duration" onChange={(e) => updateRow(i, { duration: e.target.value })} />
+                  <button onClick={() => removeRow(i)} style={{ background: 'none', border: 'none', color: C.danger, cursor: 'pointer', padding: 4 }}><X size={14} /></button>
+                </div>
+                <input style={{ ...cellInputStyle, marginTop: 6, borderColor: s.notes ? C.amber : C.line, background: s.notes ? C.amberSoft : '#fff' }}
+                  value={s.notes} placeholder="Safety note / contraindication (optional)" onChange={(e) => updateRow(i, { notes: e.target.value })} />
               </div>
             ))}
           </div>
@@ -128,12 +132,19 @@ function SupplementReview({ report, patientId, onUpdated }: { report: Report; pa
               </thead>
               <tbody>
                 {rows.map((s, i) => (
-                  <tr key={i} style={{ borderTop: `1px solid ${C.line}` }}>
-                    <td style={{ padding: '7px 8px 7px 0', fontWeight: 700, color: C.ink }}>{s.name}</td>
-                    <td style={{ padding: '7px 8px 7px 0', color: C.ink }}>{s.dose || '—'}</td>
-                    <td style={{ padding: '7px 8px 7px 0', color: C.ink }}>{s.timing || '—'}</td>
-                    <td style={{ padding: '7px 0', color: C.ink }}>{s.duration || '—'}</td>
-                  </tr>
+                  <Fragment key={i}>
+                    <tr style={{ borderTop: `1px solid ${C.line}` }}>
+                      <td style={{ padding: '7px 8px 7px 0', fontWeight: 700, color: C.ink }}>{s.name}</td>
+                      <td style={{ padding: '7px 8px 7px 0', color: C.ink }}>{s.dose || '—'}</td>
+                      <td style={{ padding: '7px 8px 7px 0', color: C.ink }}>{s.timing || '—'}</td>
+                      <td style={{ padding: '7px 0', color: C.ink }}>{s.duration || '—'}</td>
+                    </tr>
+                    {s.notes && (
+                      <tr>
+                        <td colSpan={4} style={{ padding: '0 0 7px 0', color: C.amber, fontSize: 11.5 }}>⚠ {s.notes}</td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
