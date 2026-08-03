@@ -17,7 +17,12 @@ export type RoadmapRow = {
   sessions: { case_summary: { goal?: string; coach_quote?: string } | null } | null
 }
 
-export function buildGuideData(roadmap: RoadmapRow, imageBank: GuideImage[] = [], recipeBank: BankRecipe[] = []): GuideData {
+export function buildGuideData(
+  roadmap: RoadmapRow,
+  imageBank: GuideImage[] = [],
+  recipeBank: BankRecipe[] = [],
+  confirmedSupplements: GuideData['confirmedSupplements'] = []
+): GuideData {
   const overrides = roadmap.guide_overrides ?? {}
   // Priority: coach's manual edit > the AI's motivating one-liner from the
   // case summary > the raw problem statement, as a last resort for sessions
@@ -44,5 +49,6 @@ export function buildGuideData(roadmap: RoadmapRow, imageBank: GuideImage[] = []
     recipeBank,
     manualRecipes: overrides.manual_recipes ?? {},
     theme: overrides.theme || 'classic',
+    confirmedSupplements,
   }
 }

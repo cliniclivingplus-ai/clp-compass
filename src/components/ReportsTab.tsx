@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { Upload, Loader2, FileText, Trash2, AlertCircle, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react'
+import { Upload, Loader2, FileText, Trash2, AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Pill, Plus, X } from 'lucide-react'
+import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 
 const C = {
   green: '#538A22', greenDeep: '#2F5214', greenSoft: '#F2F9EC', greenBorder: '#C8E9A8',
@@ -8,7 +9,9 @@ const C = {
   faint: '#8A9284', line: '#ECEBE3', card: '#FFFFFF', danger: '#b4462f', dangerSoft: '#FBEBE6',
 }
 
-const REPORT_TYPES = ['Gut Microbiome', 'Blood Report', 'Hormone Panel', 'Other']
+const REPORT_TYPES = ['Gut Microbiome', 'Blood Report', 'Hormone Panel', 'Supplement Prescription', 'Other']
+
+type Supplement = { name: string; dose: string; timing: string; duration: string }
 
 type Report = {
   id: string
@@ -16,9 +19,130 @@ type Report = {
   file_name: string | null
   file_url: string | null
   patient_summary: string | null
+  supplements: Supplement[] | null
+  supplements_confirmed: boolean
   status: 'processing' | 'ready' | 'failed'
   error_message: string | null
   created_at: string
+}
+
+const cellInputStyle = {
+  width: '100%', padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.line}`,
+  fontSize: 12.5, color: C.ink, fontFamily: 'inherit', boxSizing: 'border-box' as const,
+}
+
+// The coach's review/edit/confirm gate for AI-extracted supplements — this
+// is the only path that ever reaches the patient dashboard. Starts in edit
+// mode automatically for a fresh extraction that hasn't been confirmed yet.
+function SupplementReview({ report, patientId, onUpdated }: { report: Report; patientId: string; onUpdated: (r: Report) => void }) {
+  const [rows, setRows] = useState<Supplement[]>(report.supplements ?? [])
+  const [editing, setEditing] = useState(!report.supplements_confirmed)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  if (!report.supplements || report.supplements.length === 0) return null
+
+  function updateRow(i: number, patch: Partial<Supplement>) {
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  }
+  function removeRow(i: number) {
+    setRows((prev) => prev.filter((_, idx) => idx !== i))
+  }
+  function addRow() {
+    setRows((prev) => [...prev, { name: '', dose: '', timing: '', duration: '' }])
+  }
+
+  async function save(confirm: boolean) {
+    setSaving(true); setError('')
+    try {
+      const r = await fetch(`/api/patients/${patientId}/reports/${report.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplements: rows, supplements_confirmed: confirm }),
+      })
+      const j = await r.json()
+      if (!r.ok) { setError(j.error || 'Save failed'); return }
+      onUpdated(j)
+      setRows(j.supplements ?? [])
+      if (confirm) setEditing(false)
+    } catch {
+      setError('Network error — try again.')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div style={{ marginTop: 14, borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          <Pill size={12} /> Supplements found in this report
+        </div>
+        {report.supplements_confirmed && !editing ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: C.greenDeep, background: C.greenSoft, borderRadius: 20, padding: '3px 9px' }}>
+            <CheckCircle2 size={11} /> Confirmed — on patient dashboard
+          </span>
+        ) : (
+          <span style={{ fontSize: 11, fontWeight: 600, color: C.amber, background: C.amberSoft, borderRadius: 20, padding: '3px 9px' }}>
+            Needs review before patients can see this
+          </span>
+        )}
+      </div>
+
+      {editing ? (
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {rows.map((s, i) => (
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1.2fr 1fr auto', gap: 6, alignItems: 'center' }}>
+                <input style={cellInputStyle} value={s.name} placeholder="Name" onChange={(e) => updateRow(i, { name: e.target.value })} />
+                <input style={cellInputStyle} value={s.dose} placeholder="Dose" onChange={(e) => updateRow(i, { dose: e.target.value })} />
+                <input style={cellInputStyle} value={s.timing} placeholder="When to take" onChange={(e) => updateRow(i, { timing: e.target.value })} />
+                <input style={cellInputStyle} value={s.duration} placeholder="Duration" onChange={(e) => updateRow(i, { duration: e.target.value })} />
+                <button onClick={() => removeRow(i)} style={{ background: 'none', border: 'none', color: C.danger, cursor: 'pointer', padding: 4 }}><X size={14} /></button>
+              </div>
+            ))}
+          </div>
+          <button onClick={addRow} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 8, background: 'none', border: 'none', color: C.green, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+            <Plus size={12} /> Add row
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+            <button onClick={() => save(true)} disabled={saving}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 7, border: 'none', background: C.green, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+              {saving ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle2 size={12} />} Confirm & show on patient dashboard
+            </button>
+            <button onClick={() => save(false)} disabled={saving}
+              style={{ padding: '7px 14px', borderRadius: 7, border: `1px solid ${C.line}`, background: '#fff', color: C.ink, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              Save draft only
+            </button>
+            {error && <span style={{ fontSize: 12, color: C.danger }}>{error}</span>}
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', color: C.faint, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                  <th style={{ padding: '4px 8px 8px 0' }}>Name</th>
+                  <th style={{ padding: '4px 8px 8px 0' }}>Dose</th>
+                  <th style={{ padding: '4px 8px 8px 0' }}>When to take</th>
+                  <th style={{ padding: '4px 0 8px 0' }}>Duration</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((s, i) => (
+                  <tr key={i} style={{ borderTop: `1px solid ${C.line}` }}>
+                    <td style={{ padding: '7px 8px 7px 0', fontWeight: 700, color: C.ink }}>{s.name}</td>
+                    <td style={{ padding: '7px 8px 7px 0', color: C.ink }}>{s.dose || '—'}</td>
+                    <td style={{ padding: '7px 8px 7px 0', color: C.ink }}>{s.timing || '—'}</td>
+                    <td style={{ padding: '7px 0', color: C.ink }}>{s.duration || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button onClick={() => setEditing(true)} style={{ marginTop: 8, background: 'none', border: 'none', color: C.green, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>Edit</button>
+        </>
+      )}
+    </div>
+  )
 }
 
 function StatusBadge({ status }: { status: Report['status'] }) {
@@ -39,7 +163,7 @@ function StatusBadge({ status }: { status: Report['status'] }) {
   )
 }
 
-function ReportRow({ report, patientId, onDeleted }: { report: Report; patientId: string; onDeleted: (id: string) => void }) {
+function ReportRow({ report, patientId, onDeleted, onUpdated }: { report: Report; patientId: string; onDeleted: (id: string) => void; onUpdated: (r: Report) => void }) {
   const [expanded, setExpanded] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -70,7 +194,7 @@ function ReportRow({ report, patientId, onDeleted }: { report: Report; patientId
       {expanded && (
         <div style={{ borderTop: `1px solid ${C.line}`, padding: '14px 18px' }}>
           {report.status === 'ready' && report.patient_summary && (
-            <p style={{ fontSize: 13, color: C.ink, lineHeight: 1.7, whiteSpace: 'pre-wrap', margin: 0 }}>{report.patient_summary}</p>
+            <p style={{ fontSize: 13, color: C.ink, lineHeight: 1.7, whiteSpace: 'pre-wrap', margin: 0 }}>{renderMarkdownBold(report.patient_summary)}</p>
           )}
           {report.status === 'failed' && (
             <p style={{ fontSize: 12.5, color: C.danger, margin: 0 }}>{report.error_message}</p>
@@ -78,6 +202,7 @@ function ReportRow({ report, patientId, onDeleted }: { report: Report; patientId
           {report.status === 'processing' && (
             <p style={{ fontSize: 12.5, color: C.muted, margin: 0 }}>Extracting and summarizing — this can take up to a minute.</p>
           )}
+          {report.status === 'ready' && <SupplementReview report={report} patientId={patientId} onUpdated={onUpdated} />}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
             {report.file_url && (
               <a href={report.file_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: C.green, fontWeight: 600, textDecoration: 'none' }}>View original file →</a>
@@ -129,6 +254,10 @@ export default function ReportsTab({ patientId }: { patientId: string }) {
     setReports((prev) => prev.filter((r) => r.id !== id))
   }
 
+  function updateReport(updated: Report) {
+    setReports((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
+  }
+
   return (
     <div>
       <style>{`@keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }`}</style>
@@ -158,7 +287,7 @@ export default function ReportsTab({ patientId }: { patientId: string }) {
         <div style={{ color: C.muted, fontSize: 13, padding: '20px 0', textAlign: 'center' }}>No reports uploaded yet.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {reports.map((r) => <ReportRow key={r.id} report={r} patientId={patientId} onDeleted={removeReport} />)}
+          {reports.map((r) => <ReportRow key={r.id} report={r} patientId={patientId} onDeleted={removeReport} onUpdated={updateReport} />)}
         </div>
       )}
     </div>

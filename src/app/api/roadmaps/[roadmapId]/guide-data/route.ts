@@ -16,12 +16,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ road
       .eq('id', roadmapId)
       .single(),
     supabaseAdmin.from('guide_images').select('id, label, tags, image_url'),
-    supabaseAdmin.from('recipe_bank').select('id, name, meal_type, protein_label, ingredients, steps, tags'),
+    supabaseAdmin.from('recipe_bank').select('*'),
   ])
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
   if (!roadmap) return Response.json({ error: 'Not found' }, { status: 404 })
 
-  const data = buildGuideData(roadmap, imageBank ?? [], recipeBank ?? [])
+  const { data: supplementReport } = await supabaseAdmin
+    .from('patient_reports')
+    .select('supplements')
+    .eq('patient_id', roadmap.patient_id)
+    .eq('supplements_confirmed', true)
+    .not('supplements', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const data = buildGuideData(roadmap, imageBank ?? [], recipeBank ?? [], supplementReport?.supplements ?? [])
   return Response.json({ data })
 }

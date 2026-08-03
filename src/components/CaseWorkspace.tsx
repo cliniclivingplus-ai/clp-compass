@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { Loader2, Sparkles, Send, MessageSquare, AlertCircle, RotateCw, FileText, ChevronDown, ChevronUp, BookOpen, Circle, CheckCircle2, Clock } from 'lucide-react'
+import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 
 const C = {
   green: '#538A22', greenDeep: '#2F5214', greenSoft: '#F2F9EC', greenBorder: '#C8E9A8',
@@ -192,7 +193,7 @@ export default function CaseWorkspace({
             )}
           </div>
         ) : (
-          <p style={{ fontSize: 14, color: C.ink, margin: 0, lineHeight: 1.6 }}>{summary}</p>
+          <p style={{ fontSize: 14, color: C.ink, margin: 0, lineHeight: 1.6 }}>{renderMarkdownBold(summary)}</p>
         )}
 
         {transcript && (
@@ -295,7 +296,7 @@ export default function CaseWorkspace({
                   {m.role === 'user' ? 'You' : 'Clinical co-pilot'}
                 </div>
                 <div style={{ background: m.role === 'user' ? C.green : C.greenSoft, color: m.role === 'user' ? '#fff' : C.ink, border: m.role === 'user' ? 'none' : `1px solid ${C.greenBorder}`, borderRadius: 14, padding: '11px 14px', fontSize: 13.5, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
-                  {m.content}
+                  {renderMarkdownBold(m.content)}
                 </div>
                 {m.role === 'assistant' && !!m.sources?.length && (
                   <details className="source-popover" style={{ marginTop: 5 }}>
