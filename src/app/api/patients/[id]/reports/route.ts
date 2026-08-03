@@ -7,6 +7,7 @@ export const maxDuration = 60
 import { supabaseAdmin } from '@/lib/supabase'
 import { extractReportText, ScannedPdfError } from '@/lib/reports/extractText'
 import { summarizeReportForPatient } from '@/lib/reports/summarizeReport'
+import { extractSupplementsFromReport } from '@/lib/reports/extractSupplements'
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -56,10 +57,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   try {
     const rawText = await extractReportText(buffer, file.type)
-    const summary = await summarizeReportForPatient(reportType.trim(), patient.full_name, rawText)
+    const [summary, supplements] = await Promise.all([
+      summarizeReportForPatient(reportType.trim(), patient.full_name, rawText),
+      extractSupplementsFromReport(rawText),
+    ])
     const { data: updated, error: updateError } = await supabaseAdmin
       .from('patient_reports')
-      .update({ raw_text: rawText, patient_summary: summary, status: 'ready' })
+      // supplements is a draft only — supplements_confirmed stays false
+      // (its default) until a coach reviews and confirms it.
+      .update({ raw_text: rawText, patient_summary: summary, supplements, status: 'ready' })
       .eq('id', report.id)
       .select()
       .single()

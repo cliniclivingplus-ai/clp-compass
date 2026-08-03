@@ -25,7 +25,20 @@ export default async function PatientDashboardPage({ params }: { params: Promise
 
   if (error || !roadmap) notFound()
 
-  const guideData = buildGuideData(roadmap, imageBank ?? [], recipes ?? [])
+  // Only a coach-confirmed supplement list is ever shown to a patient — see
+  // the review/confirm step in ReportsTab.tsx. Most recent one wins if a
+  // patient has multiple confirmed reports with a supplement list.
+  const { data: supplementReport } = await supabaseAdmin
+    .from('patient_reports')
+    .select('supplements')
+    .eq('patient_id', roadmap.patient_id)
+    .eq('supplements_confirmed', true)
+    .not('supplements', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const guideData = buildGuideData(roadmap, imageBank ?? [], recipes ?? [], supplementReport?.supplements ?? [])
 
   return <DashboardClient roadmapId={roadmapId} data={guideData} initialCheckins={checkins ?? []} />
 }

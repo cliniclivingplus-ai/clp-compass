@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 import { ArrowLeft, Plus, Pencil, FileText, StickyNote, LayoutDashboard, Calendar, ChevronRight, Microscope } from 'lucide-react'
 import ReportsTab from '@/components/ReportsTab'
 
@@ -340,13 +341,13 @@ function NotesTab({ sessions }: { sessions: Session[] }) {
           {s.pre_meeting_notes?.trim() && (
             <div style={{ marginBottom: s.post_meeting_notes?.trim() ? 12 : 0 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Before session</div>
-              <p style={{ fontSize: 13.5, color: C.ink, margin: 0, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{s.pre_meeting_notes}</p>
+              <p style={{ fontSize: 13.5, color: C.ink, margin: 0, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{renderMarkdownBold(s.pre_meeting_notes)}</p>
             </div>
           )}
           {s.post_meeting_notes?.trim() && (
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>After session</div>
-              <p style={{ fontSize: 13.5, color: C.ink, margin: 0, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{s.post_meeting_notes}</p>
+              <p style={{ fontSize: 13.5, color: C.ink, margin: 0, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{renderMarkdownBold(s.post_meeting_notes)}</p>
             </div>
           )}
         </div>

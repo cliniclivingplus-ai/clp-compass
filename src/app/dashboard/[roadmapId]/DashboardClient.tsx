@@ -7,6 +7,7 @@ import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
 import { selectRecipesForPatient, type RecipeMatch } from '@/lib/pdf/matchRecipes'
 import type { GuideData, DayMealSlot } from '@/lib/pdf/ClientGuideDocument'
 import { splitRecipeLines } from '@/lib/recipeText'
+import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 import { FOOD_PLATES, GROCERY_CATEGORIES, type MealType } from '@/lib/foodPlates'
 
 // Every color used anywhere in this file is one of these 10 tokens — so
@@ -1238,7 +1239,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   <>
                     <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>{data.coach?.full_name}</div>
                     <div style={{ fontSize: 12, color: C.muted }}>{data.coach?.designation}</div>
-                    {coachQuote && <div style={{ fontSize: 13, color: C.accent, fontStyle: 'italic', marginTop: 6 }}>&ldquo;{coachQuote}&rdquo;</div>}
+                    {coachQuote && <div style={{ fontSize: 13, color: C.accent, fontStyle: 'italic', marginTop: 6 }}>&ldquo;{renderMarkdownBold(coachQuote)}&rdquo;</div>}
                   </>
                 )}
               </div>
@@ -1258,7 +1259,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   value={whyReflection} onChange={(e) => setWhyReflection(e.target.value)}
                   placeholder={`${firstName}, from what you shared with us...`} />
               ) : whyReflection ? (
-                <p style={bulletStyle}>{firstName}, from what you shared with us: {whyReflection}</p>
+                <p style={bulletStyle}>{firstName}, from what you shared with us: {renderMarkdownBold(whyReflection)}</p>
               ) : (
                 <p style={{ ...bulletStyle, color: C.muted }}>Not filled in yet.</p>
               )}
@@ -1376,7 +1377,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   value={lifestyleText} onChange={(e) => setLifestyleText(e.target.value)}
                   placeholder="• One lifestyle change per line, tied to something specific in their case" />
               ) : (
-                lifestyleBullets.map((b, i) => <p key={i} style={bulletStyle}>• {b}</p>)
+                lifestyleBullets.map((b, i) => <p key={i} style={bulletStyle}>• {renderMarkdownBold(b)}</p>)
               )}
             </div>
           )}
@@ -1462,14 +1463,41 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             <div style={{ fontSize: 11.5, color: C.muted }}>You&apos;ll get this alongside your recipes each week, with a short note on why it was chosen for you specifically.</div>
           </div>
 
-          {/* Supplements */}
+          {/* Supplements — a structured table when a coach has confirmed an
+              extracted prescription list (see ReportsTab.tsx's review step),
+              plus any free-text guidance from the roadmap itself. Never
+              shows unconfirmed/draft dosing data. */}
           <div id="supplements" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
             <div style={sectionTitleStyle}><Pill size={18} color={C.accent} /> Your supplement plan</div>
-            {parsedGuidelines.supplements.length > 0 ? (
-              parsedGuidelines.supplements.map((s, i) => <p key={i} style={bulletStyle}>• {s}</p>)
-            ) : (
-              <p style={bulletStyle}>No supplements on file yet — {coachFirst} will add these once your plan calls for them.</p>
+            {data.confirmedSupplements.length > 0 && (
+              <div style={{ overflowX: 'auto', marginBottom: parsedGuidelines.supplements.length > 0 ? 16 : 10 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: C.muted, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                      <th style={{ padding: '4px 10px 8px 0' }}>Supplement</th>
+                      <th style={{ padding: '4px 10px 8px 0' }}>Dose</th>
+                      <th style={{ padding: '4px 10px 8px 0' }}>When to take</th>
+                      <th style={{ padding: '4px 0 8px 0' }}>Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.confirmedSupplements.map((s, i) => (
+                      <tr key={i} style={{ borderTop: `1px solid ${C.rule}` }}>
+                        <td style={{ padding: '9px 10px 9px 0', fontWeight: 700, color: C.ink }}>{s.name}</td>
+                        <td style={{ padding: '9px 10px 9px 0', color: C.ink }}>{s.dose || '—'}</td>
+                        <td style={{ padding: '9px 10px 9px 0', color: C.ink }}>{s.timing || '—'}</td>
+                        <td style={{ padding: '9px 0', color: C.ink }}>{s.duration || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
+            {parsedGuidelines.supplements.length > 0 ? (
+              parsedGuidelines.supplements.map((s, i) => <p key={i} style={bulletStyle}>• {renderMarkdownBold(s)}</p>)
+            ) : data.confirmedSupplements.length === 0 ? (
+              <p style={bulletStyle}>No supplements on file yet — {coachFirst} will add these once your plan calls for them.</p>
+            ) : null}
             <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8 }}>Don&apos;t start, stop, or change a dose without confirming with {coachFirst} first.</div>
           </div>
 
@@ -1530,7 +1558,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             {parsedGuidelines.redFlags.length > 0 && (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>Same day — specific to your plan</div>
-                {parsedGuidelines.redFlags.map((f, i) => <p key={i} style={bulletStyle}>• {f}</p>)}
+                {parsedGuidelines.redFlags.map((f, i) => <p key={i} style={bulletStyle}>• {renderMarkdownBold(f)}</p>)}
               </div>
             )}
             <p style={bulletStyle}>A question about a supplement, food, or your plan — message {coachFirst} directly{data.coach?.email ? ` (${data.coach.email})` : ''}.</p>
