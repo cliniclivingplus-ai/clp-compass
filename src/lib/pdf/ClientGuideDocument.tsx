@@ -45,7 +45,8 @@ export type GuideData = {
   coachQuote: string // personalized callback line, grounded in a real transcript detail — empty if none found
   imageBank: GuideImage[] // coach-uploaded, tag-matched into sections that genuinely fit — never forced
   recipeBank: BankRecipe[] // coach-built recipes, tag/keyword-matched to this patient's real concern & diet notes
-  manualRecipes: Partial<Record<DayMealSlot, string[]>> // coach's curated recipe-id list per slot; when set, replaces the auto-detected picks for that slot entirely
+  manualRecipes: Partial<Record<DayMealSlot, string[]>> // legacy plan-wide curated recipe-id list per slot, from before per-week curation existed — kept as a fallback so old roadmaps don't lose a coach's picks
+  weeklyManualRecipes: Record<number, Partial<Record<DayMealSlot, string[]>>> // coach's curated recipe-id list per slot, per week_number; when set for a week, replaces the auto-detected picks for that week+slot entirely
   theme: string // coach-picked color palette id for the live dashboard & downloaded plan — falls back to 'classic' if unset or unrecognized
   confirmedSupplements: { name: string; dose: string; timing: string; duration: string; notes: string }[] // from a patient_reports row a coach explicitly reviewed & confirmed — never shown pre-confirmation
 }

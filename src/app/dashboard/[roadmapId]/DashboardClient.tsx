@@ -9,6 +9,7 @@ import type { GuideData, DayMealSlot } from '@/lib/pdf/ClientGuideDocument'
 import { splitRecipeLines } from '@/lib/recipeText'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 import { FOOD_PLATES, GROCERY_CATEGORIES, type MealType } from '@/lib/foodPlates'
+import { buildGroceryList, type GroceryCategory } from '@/lib/groceryList'
 
 // Every color used anywhere in this file is one of these 10 tokens — so
 // theming is just swapping which literal hex values `--clp-*` resolves to
@@ -559,6 +560,16 @@ function toggleDayExport(id, btn){
 function closeDayExport(){
   document.querySelectorAll('[data-day-body]').forEach(function(el){ el.style.display = 'none'; });
 }
+function toggleFaqExport(id, btn){
+  var body = document.querySelector('[data-faq-body="' + id + '"]');
+  if (!body) return;
+  var isOpen = body.style.display === 'block';
+  body.style.display = isOpen ? 'none' : 'block';
+  if (btn) {
+    var icon = btn.querySelector('svg');
+    if (icon) icon.style.transform = isOpen ? '' : 'rotate(90deg)';
+  }
+}
 function openSlotExport(id){
   document.querySelectorAll('[data-slot-list]').forEach(function(el){ el.style.display = 'none'; });
   document.querySelectorAll('[data-slot-body]').forEach(function(el){
@@ -569,6 +580,62 @@ function closeSlotExport(){
   document.querySelectorAll('[data-slot-list]').forEach(function(el){ el.style.display = 'grid'; });
   document.querySelectorAll('[data-slot-body]').forEach(function(el){ el.style.display = 'none'; });
 }
+function openGroceryExport(id){
+  document.querySelectorAll('[data-grocery-month-body]').forEach(function(el){
+    el.style.display = (el.getAttribute('data-grocery-month-body')===id) ? 'block' : 'none';
+  });
+  var overlay = document.querySelector('[data-grocery-overlay]');
+  if (overlay) overlay.style.display = 'flex';
+  closeGroceryWeekExport();
+}
+function closeGroceryExport(){
+  var overlay = document.querySelector('[data-grocery-overlay]');
+  if (overlay) overlay.style.display = 'none';
+  closeGroceryWeekExport();
+}
+function openGroceryWeekExport(id){
+  document.querySelectorAll('[data-grocery-week-list]').forEach(function(el){ el.style.display = 'none'; });
+  document.querySelectorAll('[data-grocery-week-body]').forEach(function(el){
+    el.style.display = (el.getAttribute('data-grocery-week-body')===id) ? 'block' : 'none';
+  });
+}
+function closeGroceryWeekExport(){
+  document.querySelectorAll('[data-grocery-week-list]').forEach(function(el){ el.style.display = ''; });
+  document.querySelectorAll('[data-grocery-week-body]').forEach(function(el){ el.style.display = 'none'; });
+}
+// "Bought" checkboxes are a personal shopping checklist — same "never
+// synced, localStorage only" treatment as the goal checkboxes above, just
+// under their own storage key so the two lists can't collide.
+var CLP_GROCERY_KEY = 'clp-grocery-' + CLP_ROADMAP_ID;
+function clpGetBought(){
+  try { return JSON.parse(localStorage.getItem(CLP_GROCERY_KEY) || '[]'); } catch(e) { return []; }
+}
+function clpSetGroceryVisual(el, bought){
+  var doneIcon = el.querySelector('[data-grocery-icon-done]');
+  var undoneIcon = el.querySelector('[data-grocery-icon-undone]');
+  var text = el.querySelector('[data-grocery-item-text]');
+  if (doneIcon) doneIcon.style.display = bought ? 'inline-flex' : 'none';
+  if (undoneIcon) undoneIcon.style.display = bought ? 'none' : 'inline-flex';
+  if (text) text.style.textDecoration = bought ? 'line-through' : 'none';
+  el.style.color = bought ? '${C.muted}' : '${C.inkSoft}';
+}
+function toggleGroceryItemExport(key, el){
+  var list = clpGetBought();
+  var idx = list.indexOf(key);
+  var bought;
+  if (idx >= 0) { list.splice(idx, 1); bought = false; }
+  else { list.push(key); bought = true; }
+  try { localStorage.setItem(CLP_GROCERY_KEY, JSON.stringify(list)); } catch(e){}
+  clpSetGroceryVisual(el, bought);
+}
+function initGroceryExport(){
+  var bought = clpGetBought();
+  document.querySelectorAll('[data-grocery-item]').forEach(function(el){
+    var key = el.getAttribute('data-grocery-item');
+    clpSetGroceryVisual(el, bought.indexOf(key) !== -1);
+  });
+}
+initGroceryExport();
 // A goal row shows "done" only for TODAY's real date — same daily-habit
 // semantics as the live app (checkedSet is keyed by today's date there
 // too), not a one-time-forever checkbox. Uses the browser's actual current
@@ -692,6 +759,12 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [openWeek, setOpenWeek] = useState<number | null>(null)
   const [openDay, setOpenDay] = useState<string | null>(null)
   const [openSlot, setOpenSlot] = useState<string | null>(null)
+  const [openGroceryMonth, setOpenGroceryMonth] = useState<number | null>(null)
+  const [openGroceryWeek, setOpenGroceryWeek] = useState<number | null>(null)
+  const [boughtItems, setBoughtItems] = useState<Set<string>>(new Set())
+  const [openFaq, setOpenFaq] = useState<number | null>(null)
+  const [aiGroceryCache, setAiGroceryCache] = useState<Record<number, GroceryCategory[]>>({})
+  const [aiGroceryLoadingWeek, setAiGroceryLoadingWeek] = useState<number | null>(null)
   const today = todayISO()
 
   // Edit state — seeded once from `data` and only ever touched by the coach
@@ -706,6 +779,9 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [lifestyleText, setLifestyleText] = useState(data.roadmap.lifestyle_guidelines)
   const [editWeeks, setEditWeeks] = useState<WeeklyPlan[]>(data.roadmap.weekly_schedule)
   const [manualRecipes, setManualRecipes] = useState<Partial<Record<DayMealSlot, string[]>>>(data.manualRecipes || {})
+  const [weeklyManualRecipes, setWeeklyManualRecipes] = useState<Record<number, Partial<Record<DayMealSlot, string[]>>>>(data.weeklyManualRecipes || {})
+  const [editingWeek, setEditingWeek] = useState<number | null>(null)
+  const [recipeSearch, setRecipeSearch] = useState<Partial<Record<DayMealSlot, string>>>({})
   const [theme, setTheme] = useState(data.theme && PALETTES[data.theme] ? data.theme : 'classic')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -730,7 +806,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             lifestyle_guidelines: lifestyleText,
-            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes, theme },
+            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes, weekly_manual_recipes: weeklyManualRecipes, theme },
             weekly_schedule: editWeeks.map((w) => ({ ...w, actions: (w.actions || []).map((a) => a.trim()).filter(Boolean) })),
           }),
         }),
@@ -779,6 +855,29 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     } catch {
       revert()
     }
+  }
+
+  // "Bought" state for the per-week shopping list — a personal checklist,
+  // never sent to the server or seen by the coach, so plain localStorage
+  // (namespaced by roadmapId) is enough; keyed by week + category + item so
+  // checking something off in Week 1 doesn't cross out the same ingredient
+  // in Week 2's list.
+  const groceryStorageKey = `clp-grocery-${roadmapId}`
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(groceryStorageKey)
+      if (raw) setBoughtItems(new Set(JSON.parse(raw)))
+    } catch { /* ignore */ }
+  }, [groceryStorageKey])
+
+  function toggleBought(key: string) {
+    setBoughtItems((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      try { localStorage.setItem(groceryStorageKey, JSON.stringify([...next])) } catch { /* ignore */ }
+      return next
+    })
   }
 
   const months = reshapeRoadmapIntoMonths(editWeeks).filter((m) => m.planned)
@@ -861,23 +960,27 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     return { heroImage: hero, mealMatches: capped, weekMealMatches: selection, mealImages: images, superfoodImage: superfood, monthImages: months }
   }, [data])
 
-  // The coach's curated recipe-id list for a slot, if they've set one —
-  // falling back to the top auto-detected matches otherwise. Also guards
-  // against the old pre-multi-select data shape (a single recipe id string
-  // per slot) still present on roadmaps saved before this change, treating
-  // it the same as unset rather than crashing on it.
-  const curatedSlotIds = (slot: DayMealSlot): string[] => {
-    const raw = manualRecipes[slot]
-    return Array.isArray(raw) && raw.length ? raw : weekMealMatches[slot].map((m) => m.recipe.id)
+  // The coach's curated recipe-id list for a slot in a specific week, if
+  // they've set one — a per-week override wins, then the old plan-wide
+  // `manualRecipes` (from before per-week curation existed, kept so older
+  // roadmaps don't lose a coach's picks), then the top auto-detected matches.
+  // Also guards against the old pre-multi-select data shape (a single recipe
+  // id string per slot) still present on roadmaps saved before that change.
+  const curatedSlotIds = (slot: DayMealSlot, weekNumber: number): string[] => {
+    const weekRaw = weeklyManualRecipes[weekNumber]?.[slot]
+    if (Array.isArray(weekRaw) && weekRaw.length) return weekRaw
+    const legacyRaw = manualRecipes[slot]
+    if (Array.isArray(legacyRaw) && legacyRaw.length) return legacyRaw
+    return weekMealMatches[slot].map((m) => m.recipe.id)
   }
 
   // Each of the 4 weekly recipe slots (Breakfast/Lunch/Dinner/Snacks) shows a
-  // curated bunch of recipes, not just one: the coach's explicit picks for
-  // that slot if they've curated it, otherwise the top auto-detected matches
-  // (tag/keyword matched against this patient's concern & diet notes) — a
-  // coach's curated list always wins over the auto guess.
-  const slotRecipes = DAY_MEAL_SLOTS.map((slot) => {
-    const chosenIds = curatedSlotIds(slot)
+  // curated bunch of recipes for a given week, not just one: the coach's
+  // explicit picks for that week+slot if curated, otherwise the top
+  // auto-detected matches (tag/keyword matched against this patient's
+  // concern & diet notes) — a coach's curated list always wins.
+  const getSlotRecipes = (weekNumber: number) => DAY_MEAL_SLOTS.map((slot) => {
+    const chosenIds = curatedSlotIds(slot, weekNumber)
     const matches = chosenIds
       .map((id): RecipeMatch | null => {
         const auto = weekMealMatches[slot].find((m) => m.recipe.id === id)
@@ -889,13 +992,47 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     return { slot, matches }
   })
 
+  const allWeekSlotRecipes = months.flatMap((m) => m.weeks.flatMap((w) => getSlotRecipes(w.week_number)))
+
   const allMatches = (() => {
     const combined = [...mealMatches.breakfast, ...mealMatches.lunch, ...mealMatches.dinner, ...mealMatches.snack,
-      ...slotRecipes.flatMap((s) => s.matches)]
+      ...allWeekSlotRecipes.flatMap((s) => s.matches)]
     return combined.filter((m, i) => combined.findIndex((x) => x.recipe.id === m.recipe.id) === i)
   })()
+  // Real ingredients from this patient's own matched recipes, categorized —
+  // falls back to the generic reference list only when no recipe has been
+  // matched yet, so the list is never left empty. Used as the fallback for
+  // any week whose own curated recipes don't yield ingredients.
+  const patientGroceryCategories = buildGroceryList(allMatches.map((m) => m.recipe))
+  const groceryCategories = patientGroceryCategories.length > 0 ? patientGroceryCategories : GROCERY_CATEGORIES
+
+  // The regex cleanup in groceryList.ts is instant but rule-based — an AI
+  // pass catches what fixed rules can't (spelling variants, oddly-worded
+  // duplicates, better categorization). It's fetched lazily per week (only
+  // once, cached) so opening a week's list is never blocked on it — the
+  // regex-based list above shows immediately and this quietly replaces it
+  // when ready, or stays as-is if the call fails.
+  useEffect(() => {
+    if (openGroceryWeek == null || aiGroceryCache[openGroceryWeek]) return
+    const weekRecipes = getSlotRecipes(openGroceryWeek).flatMap((s) => s.matches).map((m) => m.recipe)
+    const candidateItems = buildGroceryList(weekRecipes).flatMap((cat) => cat.items.map((name) => ({ name, category: cat.head })))
+    if (candidateItems.length === 0) return
+    let cancelled = false
+    setAiGroceryLoadingWeek(openGroceryWeek)
+    fetch('/api/grocery-list', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: candidateItems }) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled || !j || !Array.isArray(j.categories) || j.categories.length === 0) return
+        setAiGroceryCache((prev) => ({ ...prev, [openGroceryWeek]: j.categories }))
+      })
+      .catch(() => { /* keep the regex-based list on failure */ })
+      .finally(() => { if (!cancelled) setAiGroceryLoadingWeek((prev) => (prev === openGroceryWeek ? null : prev)) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openGroceryWeek])
+
   const combinedImages = new Map(mealImages)
-  slotRecipes.forEach((s) => s.matches.forEach((m) => {
+  allWeekSlotRecipes.forEach((s) => s.matches.forEach((m) => {
     if (!combinedImages.has(m.recipe.id)) {
       if (m.recipe.image_url) { combinedImages.set(m.recipe.id, m.recipe.image_url); return }
       const img = matchGuideImageDistinct(`${m.recipe.name} ${m.recipe.tags.join(' ')}`, data.imageBank, new Set())
@@ -951,6 +1088,23 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     clone.querySelectorAll('[data-slot-body]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
     clone.querySelectorAll('[data-goal-toggle]').forEach((el) => {
       el.setAttribute('onclick', `toggleGoalExport('${el.getAttribute('data-goal-toggle')}', this)`)
+    })
+    clone.querySelectorAll('[data-faq-trigger]').forEach((el) => {
+      el.setAttribute('onclick', `toggleFaqExport('${el.getAttribute('data-faq-trigger')}', this)`)
+    })
+    clone.querySelectorAll('[data-faq-body]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
+    clone.querySelectorAll('[data-grocery-month-trigger]').forEach((el) => {
+      el.setAttribute('onclick', `openGroceryExport('${el.getAttribute('data-grocery-month-trigger')}')`)
+    })
+    clone.querySelectorAll('[data-grocery-close]').forEach((el) => el.setAttribute('onclick', 'closeGroceryExport()'))
+    clone.querySelectorAll('[data-grocery-overlay]').forEach((el) => el.setAttribute('onclick', 'if(event.target===this)closeGroceryExport()'))
+    clone.querySelectorAll('[data-grocery-week-trigger]').forEach((el) => {
+      el.setAttribute('onclick', `openGroceryWeekExport('${el.getAttribute('data-grocery-week-trigger')}')`)
+    })
+    clone.querySelectorAll('[data-grocery-week-back]').forEach((el) => el.setAttribute('onclick', 'closeGroceryWeekExport()'))
+    clone.querySelectorAll('[data-grocery-item]').forEach((el) => {
+      const key = (el.getAttribute('data-grocery-item') || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+      el.setAttribute('onclick', `toggleGroceryItemExport('${key}', this)`)
     })
     // The TOC bar's sticky offset (and every section's scroll-margin-top)
     // are tuned to sit below the app's own 60px site header — the
@@ -1094,20 +1248,16 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                         )
                       })}
                     </div>
-                    {w.food_menu?.trim() && (
-                      <div style={{ background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', marginBottom: 20 }}>
-                        <div style={weekBoxLabel}>This week&apos;s food menu</div>
-                        <div style={{ fontSize: 13, color: C.inkSoft, lineHeight: 1.55 }}>{w.food_menu}</div>
-                      </div>
-                    )}
-
                     {/* Recipes — once per week, not per day (recipes aren't
-                        tracked per-day, same as the goals above). Tapping a
-                        meal slot opens the coach-curated bunch of recipes
-                        for it; tapping a recipe there opens its full detail. */}
+                        tracked per-day, same as the goals above), and each
+                        week gets its own curated bunch (coach picks per
+                        week, or falls back to the auto-detected matches for
+                        this patient). Tapping a meal slot opens the
+                        recipes for it; tapping a recipe opens its detail. */}
+                    {(() => { const weekSlotRecipes = getSlotRecipes(w.week_number); return (<>
                     <div style={weekBoxLabel}>Recipes for the week</div>
                     <div data-slot-list style={{ display: openSlot == null ? 'grid' : 'none', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
-                      {slotRecipes.map(({ slot, matches }) => {
+                      {weekSlotRecipes.map(({ slot, matches }) => {
                         const slotId = `${w.week_number}-${slot}`
                         return (
                           <button key={slot} data-slot-trigger={slotId} onClick={() => setOpenSlot(slotId)}
@@ -1120,7 +1270,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                         )
                       })}
                     </div>
-                    {slotRecipes.map(({ slot, matches }) => {
+                    {weekSlotRecipes.map(({ slot, matches }) => {
                       const slotId = `${w.week_number}-${slot}`
                       return (
                       <div key={slot} data-slot-body={slotId} style={{ display: openSlot === slotId ? 'block' : 'none' }}>
@@ -1152,11 +1302,78 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                       </div>
                       )
                     })}
+                    </>) })()}
                   </div>
                 ))}
               </div>
             ))}
             <div style={{ fontSize: 11.5, color: C.muted, marginTop: 16 }}>Tap a goal each day you complete it — checking today ({today}) tracks it for your coach to review.</div>
+          </div>
+        </div>
+      )}
+      {months.length > 0 && (
+        <div data-grocery-overlay onClick={() => { setOpenGroceryMonth(null); setOpenGroceryWeek(null) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(44,36,24,0.55)', display: openGroceryMonth != null ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 100 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ position: 'relative', background: C.paper, borderRadius: 16, padding: '24px 26px', maxWidth: 620, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
+            <button data-grocery-close onClick={() => { setOpenGroceryMonth(null); setOpenGroceryWeek(null) }}
+              style={{ position: 'absolute', top: 18, right: 18, background: 'none', border: 'none', cursor: 'pointer', color: C.muted }}><X size={18} /></button>
+            {months.map((m) => (
+              <div key={m.monthNumber} data-grocery-month-body={m.monthNumber} style={{ display: openGroceryMonth === m.monthNumber ? 'block' : 'none' }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: C.ink, paddingRight: 28, marginBottom: 4 }}>{m.monthLabel} shopping list</div>
+                <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 16 }}>Weeks {m.weekStart}–{m.weekEnd}</div>
+
+                <div data-grocery-week-list={m.monthNumber} style={{ display: openGroceryWeek == null ? 'grid' : 'none', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+                  {m.weeks.map((w: WeeklyPlan) => (
+                    <button key={w.week_number} data-grocery-week-trigger={w.week_number} onClick={() => setOpenGroceryWeek(w.week_number)}
+                      style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 10, border: `1px solid ${C.rule}`, background: C.bg, cursor: 'pointer' }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>Week {w.week_number}</div>
+                      <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{w.focus_theme}</div>
+                    </button>
+                  ))}
+                </div>
+
+                {m.weeks.map((w: WeeklyPlan) => (
+                  <div key={w.week_number} data-grocery-week-body={w.week_number} style={{ display: openGroceryWeek === w.week_number ? 'block' : 'none' }}>
+                    <button data-grocery-week-back onClick={() => setOpenGroceryWeek(null)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: C.accent, fontSize: 12.5, fontWeight: 700, padding: 0, marginBottom: 14 }}>
+                      ← Back to weeks
+                    </button>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Week {w.week_number} shopping list</div>
+                    {aiGroceryLoadingWeek === w.week_number && !aiGroceryCache[w.week_number] && (
+                      <div style={{ fontSize: 11.5, color: C.accent, marginBottom: 8 }}>✨ Tidying up this list…</div>
+                    )}
+                    {(() => {
+                      const weekRecipes = getSlotRecipes(w.week_number).flatMap((s) => s.matches).map((m) => m.recipe)
+                      const weekCategories = aiGroceryCache[w.week_number] ?? buildGroceryList(weekRecipes)
+                      const cats = weekCategories.length > 0 ? weekCategories : groceryCategories
+                      return cats.length === 0 ? (
+                      <div style={{ fontSize: 12.5, color: C.muted }}>No ingredients detected yet.</div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
+                        {cats.map((cat) => (
+                          <div key={cat.head}>
+                            <div style={{ fontSize: 10.5, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 4 }}>{cat.head}</div>
+                            {cat.items.map((item) => {
+                              const itemKey = `${w.week_number}:${cat.head}:${item}`
+                              const bought = boughtItems.has(itemKey)
+                              return (
+                                <div key={item} data-grocery-item={itemKey} onClick={() => toggleBought(itemKey)}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: bought ? C.muted : C.inkSoft, padding: '2px 0', cursor: 'pointer' }}>
+                                  <span data-grocery-icon-done style={{ display: bought ? 'inline-flex' : 'none', flexShrink: 0 }}><CheckCircle2 size={14} color={C.green} /></span>
+                                  <span data-grocery-icon-undone style={{ display: bought ? 'none' : 'inline-flex', flexShrink: 0 }}><Circle size={14} color={C.muted} /></span>
+                                  <span data-grocery-item-text style={{ textDecoration: bought ? 'line-through' : 'none' }}>{item}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                      )
+                    })()}
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -1246,12 +1463,33 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             </div>
           )}
 
-          {/* How to use this guide + Your why — one PDF page, kept together here too */}
+          {/* How to use this guide + Your why — one PDF page, kept together here too.
+              Actually walks through this dashboard's real structure (roadmap
+              drill-down, recipes, check-offs, download) instead of generic
+              filler copy, so a patient opening this for the first time knows
+              exactly where to look. */}
           <div id="howto" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
             <div style={sectionTitleStyle}>How to use this guide</div>
-            <p style={bulletStyle}>Read once, keep it handy. Your roadmap and coach intro won&apos;t change — everything else is designed to be flipped back to often.</p>
-            <p style={bulletStyle}>Recipes and weekly targets refresh as your plan progresses. You&apos;ll always get the newest version from your coach — no need to reprint the whole guide.</p>
-            <p style={bulletStyle}>Never guess — ask. If something feels off or unclear, reach your coach before improvising. That&apos;s what they&apos;re there for.</p>
+            <p style={{ ...bulletStyle, marginBottom: 16 }}>This page is built to be opened often, not read once and forgotten. Here&apos;s where everything lives:</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+              {[
+                { icon: MapPin, title: 'Your roadmap', text: 'Tap a month, then a week, to see that week’s goals day by day — tap any day to expand it, and tap a meal slot to see the recipes picked for you.' },
+                { icon: CheckCircle2, title: 'Check off as you go', text: 'Tap a goal each day you actually do it. It’s tracked under “Track your progress” below, so your coach can see real adherence before your next session — not a guess.' },
+                { icon: ChefHat, title: 'Recipes update as you go', text: 'Matched to your notes and diet — if one looks off or missing, tell ' + coachFirst + ' rather than skipping it. New ones appear here automatically, no reprinting needed.' },
+                { icon: Pill, title: 'Supplements, if any', text: 'A supplement table only shows up here once ' + coachFirst + ' has reviewed and confirmed it — if that section is empty, none is prescribed yet.' },
+                { icon: HelpCircle, title: 'When in doubt, ask', text: 'If anything here feels unclear or off, reach ' + coachFirst + ' before improvising — that’s exactly what they’re there for.' },
+              ].map(({ icon: Icon, title, text }) => (
+                <div key={title} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 9, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon size={16} color={C.accent} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink, marginBottom: 2 }}>{title}</div>
+                    <div style={{ fontSize: 12.5, color: C.inkSoft, lineHeight: 1.55 }}>{text}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
             <div id="why" style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.rule}`, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
               <div style={{ ...sectionTitleStyle, fontSize: 15, marginBottom: 10 }}>Your why</div>
               {editable ? (
@@ -1300,38 +1538,66 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                 <div style={{ fontSize: 11.5, color: C.muted, marginTop: 12 }}>Tap a month to see its weekly goals and check off what you&apos;ve done.</div>
               </>
             )}
-            {editable && (
+            {editable && months.length > 0 && (() => {
+              const currentWeek = editingWeek ?? months[0]?.weeks[0]?.week_number ?? null
+              return (
               <div style={{ ...cardStyle, background: C.bg, marginBottom: 16 }}>
                 <div style={sectionTitleStyle}>Recipes for the week</div>
                 <p style={{ ...bulletStyle, color: C.muted, marginBottom: 14 }}>
-                  Each slot pre-checks the recipes auto-detected by tag/keyword match against this patient&apos;s concern and diet notes. Check or uncheck any recipe to curate the exact bunch (4–5 recommended) shown to the patient for that slot.
+                  Pick which week you&apos;re curating, then check or uncheck recipes to set the exact bunch (4–5 recommended) shown to the patient for that week&apos;s slot. Each slot pre-checks the recipes auto-detected by tag/keyword match against this patient&apos;s concern and diet notes — different weeks can have different recipes.
                 </p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
-                  {DAY_MEAL_SLOTS.map((slot) => {
-                    const options = data.recipeBank.filter((r) => r.meal_type === slot)
-                    const checkedIds = new Set(curatedSlotIds(slot))
-                    return (
-                      <div key={slot}>
-                        <div style={editLabelStyle}>{SLOT_LABELS[slot]}</div>
-                        <div style={{ maxHeight: 180, overflowY: 'auto', border: `1px solid ${C.rule}`, borderRadius: 8, padding: '4px 10px', background: C.paper }}>
-                          {options.length === 0 && <div style={{ fontSize: 12, color: C.muted, padding: '8px 0' }}>No {SLOT_LABELS[slot].toLowerCase()} recipes in the bank yet.</div>}
-                          {options.map((r) => (
-                            <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', fontSize: 12.5, color: C.ink, cursor: 'pointer' }}>
-                              <input type="checkbox" checked={checkedIds.has(r.id)} onChange={(e) => {
-                                const base = curatedSlotIds(slot)
-                                const next = e.target.checked ? [...base, r.id] : base.filter((id) => id !== r.id)
-                                setManualRecipes((prev) => ({ ...prev, [slot]: next }))
-                              }} />
-                              {r.name}
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                  {months.flatMap((m) => m.weeks).map((w: WeeklyPlan) => (
+                    <button key={w.week_number} onClick={() => setEditingWeek(w.week_number)}
+                      style={{
+                        padding: '6px 12px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                        border: currentWeek === w.week_number ? `2px solid ${C.accent}` : `1px solid ${C.rule}`,
+                        background: currentWeek === w.week_number ? C.accentSoft : C.paper, color: C.ink,
+                      }}>
+                      Week {w.week_number}
+                    </button>
+                  ))}
                 </div>
+                {currentWeek != null && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+                    {DAY_MEAL_SLOTS.map((slot) => {
+                      const allOptions = data.recipeBank.filter((r) => r.meal_type === slot)
+                      const query = (recipeSearch[slot] || '').trim().toLowerCase()
+                      const options = query ? allOptions.filter((r) => r.name.toLowerCase().includes(query)) : allOptions
+                      const checkedIds = new Set(curatedSlotIds(slot, currentWeek))
+                      return (
+                        <div key={slot}>
+                          <div style={editLabelStyle}>{SLOT_LABELS[slot]}</div>
+                          {allOptions.length > 0 && (
+                            <input
+                              value={recipeSearch[slot] || ''}
+                              onChange={(e) => setRecipeSearch((prev) => ({ ...prev, [slot]: e.target.value }))}
+                              placeholder={`Search ${SLOT_LABELS[slot].toLowerCase()} recipes…`}
+                              style={{ ...editInputStyle, marginBottom: 6, fontSize: 12.5 }}
+                            />
+                          )}
+                          <div style={{ maxHeight: 180, overflowY: 'auto', border: `1px solid ${C.rule}`, borderRadius: 8, padding: '4px 10px', background: C.paper }}>
+                            {allOptions.length === 0 && <div style={{ fontSize: 12, color: C.muted, padding: '8px 0' }}>No {SLOT_LABELS[slot].toLowerCase()} recipes in the bank yet.</div>}
+                            {allOptions.length > 0 && options.length === 0 && <div style={{ fontSize: 12, color: C.muted, padding: '8px 0' }}>No matches for &quot;{recipeSearch[slot]}&quot;.</div>}
+                            {options.map((r) => (
+                              <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', fontSize: 12.5, color: C.ink, cursor: 'pointer' }}>
+                                <input type="checkbox" checked={checkedIds.has(r.id)} onChange={(e) => {
+                                  const base = curatedSlotIds(slot, currentWeek)
+                                  const next = e.target.checked ? [...base, r.id] : base.filter((id) => id !== r.id)
+                                  setWeeklyManualRecipes((prev) => ({ ...prev, [currentWeek]: { ...prev[currentWeek], [slot]: next } }))
+                                }} />
+                                {r.name}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
-            )}
+              )
+            })()}
             {editable && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
                 {months.map((m) => (
@@ -1349,15 +1615,9 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                           <textarea style={{ ...editInputStyle, resize: 'vertical' as const }} rows={3}
                             value={(w.actions || []).join('\n')} onChange={(e) => updateWeek(w.week_number, { actions: e.target.value.split('\n') })} />
                         </div>
-                        <div style={{ marginBottom: 7 }}>
+                        <div>
                           <div style={editLabelStyle}>Success looks like</div>
                           <input style={editInputStyle} value={w.milestone || ''} onChange={(e) => updateWeek(w.week_number, { milestone: e.target.value })} />
-                        </div>
-                        <div>
-                          <div style={editLabelStyle}>Food menu for this week</div>
-                          <textarea style={{ ...editInputStyle, resize: 'vertical' as const }} rows={3}
-                            value={w.food_menu || ''} placeholder="Type or paste this week's food menu…"
-                            onChange={(e) => updateWeek(w.week_number, { food_menu: e.target.value })} />
                         </div>
                       </div>
                     ))}
@@ -1505,17 +1765,26 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8 }}>Don&apos;t start, stop, or change a dose without confirming with {coachFirst} first.</div>
           </div>
 
-          {/* Grocery list */}
+          {/* Grocery list — same recipe-derived items every week (recipes
+              aren't assigned per specific week in this app), but broken out
+              per week so buying/checking off resets fresh each week instead
+              of one giant list for the whole plan. */}
           <div id="grocery" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
             <div style={sectionTitleStyle}><ShoppingCart size={18} color={C.accent} /> Your shopping list</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
-              {GROCERY_CATEGORIES.map((cat) => (
-                <div key={cat.head}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 4 }}>{cat.head}</div>
-                  {cat.items.map((item) => <div key={item} style={{ fontSize: 12, color: C.inkSoft, padding: '2px 0' }}>☐ {item}</div>)}
-                </div>
-              ))}
-            </div>
+            <p style={{ ...bulletStyle, marginBottom: 12 }}>Pulled straight from the ingredients of your matched recipes. Pick a week below to see it and check items off as you buy them.</p>
+            {months.length === 0 ? (
+              <div style={{ fontSize: 13.5, color: C.muted }}>Not planned yet — check back once your coach generates your roadmap.</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14 }}>
+                {months.map((m) => (
+                  <button key={m.monthNumber} data-grocery-month-trigger={m.monthNumber} onClick={() => { setOpenGroceryMonth(m.monthNumber); setOpenGroceryWeek(null) }}
+                    style={{ textAlign: 'left', padding: '12px 14px', border: `1px solid ${C.rule}`, borderRadius: 12, background: C.bg, cursor: 'pointer' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{m.monthLabel}</div>
+                    <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Weeks {m.weekStart}–{m.weekEnd}</div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Services */}
@@ -1561,12 +1830,12 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             <div style={sectionTitleStyle}><Phone size={18} color={C.accent} /> When to reach us</div>
             {parsedGuidelines.redFlags.length > 0 && (
               <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>Same day — specific to your plan</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>Contact {coachFirst} the same day if you notice</div>
                 {parsedGuidelines.redFlags.map((f, i) => <p key={i} style={bulletStyle}>• {renderMarkdownBold(f)}</p>)}
               </div>
             )}
-            <p style={bulletStyle}>A question about a supplement, food, or your plan — message {coachFirst} directly{data.coach?.email ? ` (${data.coach.email})` : ''}.</p>
-            <p style={bulletStyle}>Emergency (chest pain, difficulty breathing, fainting)? Go to your nearest emergency room — this dashboard and your coach aren&apos;t equipped for emergencies.</p>
+            <p style={bulletStyle}>Have a question about a supplement, food, or anything in your plan? Message {coachFirst} directly{data.coach?.email ? ` at ${data.coach.email}` : ''} — that&apos;s exactly what they&apos;re there for.</p>
+            <p style={bulletStyle}>In a medical emergency (chest pain, trouble breathing, fainting) go straight to your nearest emergency room — this dashboard and your coach aren&apos;t equipped to handle emergencies.</p>
           </div>
 
           {/* FAQ */}
@@ -1576,12 +1845,21 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               ['What if I can’t finish everything on my plate exactly as shown?', 'Getting the food groups roughly right matters far more than hitting exact portions.'],
               ['What if I miss a few days on my habit tracker?', 'Log what actually happened, not what you wish had happened — an honest gap tells your coach more than a perfect-looking week.'],
               ['Can I eat something that’s not on the lists?', 'Yes — the lists are what to lean on, not a ban on everything else. Ask your coach if unsure.'],
-            ].map(([q, a], i) => (
-              <div key={i} style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 2 }}>{q}</div>
-                <div style={{ fontSize: 12.5, color: C.inkSoft }}>{a}</div>
-              </div>
-            ))}
+            ].map(([q, a], i) => {
+              const isOpen = openFaq === i
+              return (
+                <div key={i} style={{ borderBottom: i < 2 ? `1px solid ${C.rule}` : 'none' }}>
+                  <button data-faq-trigger={i} onClick={() => setOpenFaq(isOpen ? null : i)}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 0', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{q}</span>
+                    {isOpen ? <ChevronDown size={16} color={C.muted} style={{ flexShrink: 0 }} /> : <ChevronRight size={16} color={C.muted} style={{ flexShrink: 0 }} />}
+                  </button>
+                  <div data-faq-body={i} style={{ display: isOpen ? 'block' : 'none', paddingBottom: 12 }}>
+                    <div style={{ fontSize: 12.5, color: C.inkSoft }}>{a}</div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
 
