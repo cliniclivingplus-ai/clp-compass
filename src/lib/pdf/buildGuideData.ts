@@ -12,7 +12,7 @@ export type RoadmapRow = {
   kb_sources: GuideData['roadmap']['kb_sources'] | null
   weekly_schedule: GuideData['roadmap']['weekly_schedule'] | null
   duration_months: number
-  guide_overrides: { goal_label?: string; why_reflection?: string; coach_quote?: string; manual_recipes?: Partial<Record<DayMealSlot, string[]>>; weekly_manual_recipes?: Record<number, Partial<Record<DayMealSlot, string[]>>>; theme?: string } | null
+  guide_overrides: { goal_label?: string; why_reflection?: string; coach_quote?: string; manual_recipes?: Partial<Record<DayMealSlot, string[]>>; weekly_manual_recipes?: Record<number, Partial<Record<DayMealSlot, string[]>>>; theme?: string; care_services?: GuideData['careServices'] } | null
   patients: (Omit<GuideData['patient'], never> & { nutritionists: Coach | null }) | null
   sessions: { case_summary: { goal?: string; coach_quote?: string } | null } | null
 }
@@ -51,5 +51,6 @@ export function buildGuideData(
     weeklyManualRecipes: overrides.weekly_manual_recipes ?? {},
     theme: overrides.theme || 'classic',
     confirmedSupplements,
+    careServices: overrides.care_services ?? [],
   }
 }

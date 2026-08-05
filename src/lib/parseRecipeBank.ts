@@ -92,7 +92,7 @@ export type RecipeImportResult = {
   errors: { block: number; reason: string }[]
 }
 
-const VALID_MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack'])
+const VALID_MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack', 'dessert'])
 
 export function parseRecipeBankText(raw: string): RecipeImportResult {
   const recipes: ParsedRecipe[] = []
@@ -182,7 +182,7 @@ export function parseRecipeBankText(raw: string): RecipeImportResult {
       else if (section === 'benefits') benefitLines.push(trimmed.replace(/^[-•\s]+/, ''))
     }
 
-    if (!VALID_MEAL_TYPES.has(mealType)) { errors.push({ block: i + 1, reason: `"${name}": Meal must be breakfast, lunch, dinner, or snack (got "${mealType || 'none'}")` }); return }
+    if (!VALID_MEAL_TYPES.has(mealType)) { errors.push({ block: i + 1, reason: `"${name}": Meal must be breakfast, lunch, dinner, snack, or dessert (got "${mealType || 'none'}")` }); return }
     if (!ingredientLines.length) { errors.push({ block: i + 1, reason: `"${name}": No ingredients found` }); return }
     if (!stepLines.length) { errors.push({ block: i + 1, reason: `"${name}": No steps found` }); return }
 

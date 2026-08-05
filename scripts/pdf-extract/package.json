@@ -1,0 +1,15 @@
+{
+  "name": "pdf-extract",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone CLI — extracts recipes (with real photos) and lifestyle/routine content from Canva-exported coaching PDFs. Run from a terminal, not through the app.",
+  "type": "commonjs",
+  "scripts": {
+    "extract": "node extract.js"
+  },
+  "dependencies": {
+    "canvas": "^3.2.3",
+    "groq-sdk": "^1.3.0",
+    "pdfjs-dist": "2.16.105"
+  }
+}

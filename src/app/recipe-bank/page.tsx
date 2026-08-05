@@ -17,7 +17,7 @@ type Recipe = {
   image_url: string | null; image_storage_path: string | null
 }
 
-const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const
+const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert'] as const
 
 const inputStyle = {
   width: '100%', padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.line}`,

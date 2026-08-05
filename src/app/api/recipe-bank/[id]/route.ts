@@ -14,7 +14,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   return NextResponse.json({ ok: true })
 }
 
-const MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack'])
+const MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack', 'dessert'])
 
 // Lets a coach fix a recipe whose ingredients/steps came out garbled from a
 // bulk PDF import (e.g. leftover page-footer text, or tips text that bled
@@ -25,7 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const update: Record<string, unknown> = {}
   if (typeof body.name === 'string' && body.name.trim()) update.name = body.name.trim()
   if (typeof body.meal_type === 'string') {
-    if (!MEAL_TYPES.has(body.meal_type)) return NextResponse.json({ error: 'meal_type must be breakfast, lunch, dinner, or snack' }, { status: 400 })
+    if (!MEAL_TYPES.has(body.meal_type)) return NextResponse.json({ error: 'meal_type must be breakfast, lunch, dinner, snack, or dessert' }, { status: 400 })
     update.meal_type = body.meal_type
   }
   if (typeof body.protein_label === 'string') update.protein_label = body.protein_label.trim() || null

@@ -46,7 +46,7 @@ function extractKeywords(text: string): string[] {
   )]
 }
 
-const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const
+const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert'] as const
 
 export function selectRecipesForPatient(
   opts: { primaryConcern: string; dietProtocol: string[] },

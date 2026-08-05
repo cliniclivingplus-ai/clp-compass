@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 import { supabaseAdmin } from '@/lib/supabase'
 
-const MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack'])
+const MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack', 'dessert'])
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
   const imageStoragePath = String(body.image_storage_path || '').trim()
 
   if (!name) return NextResponse.json({ error: 'Give the recipe a name' }, { status: 400 })
-  if (!MEAL_TYPES.has(mealType)) return NextResponse.json({ error: 'meal_type must be breakfast, lunch, dinner, or snack' }, { status: 400 })
+  if (!MEAL_TYPES.has(mealType)) return NextResponse.json({ error: 'meal_type must be breakfast, lunch, dinner, snack, or dessert' }, { status: 400 })
   if (!ingredients) return NextResponse.json({ error: 'Add the ingredients' }, { status: 400 })
   if (!steps) return NextResponse.json({ error: 'Add the steps' }, { status: 400 })
 

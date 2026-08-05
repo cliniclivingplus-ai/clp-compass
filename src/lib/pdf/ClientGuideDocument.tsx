@@ -11,9 +11,9 @@ import { cleanSourceTitle, sourceSearchUrl } from '../sourceLinks'
 
 export type KbSource = { title: string; source_type: string; chunk_preview: string }
 
-// The 4 recipe slots shown once per week in the roadmap's week view —
+// The 5 recipe slots shown once per week in the roadmap's week view —
 // exactly the recipe bank's own meal_type categories, no separate mapping.
-export type DayMealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack'
+export type DayMealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'dessert'
 
 export type Coach = {
   id: string
@@ -49,6 +49,7 @@ export type GuideData = {
   weeklyManualRecipes: Record<number, Partial<Record<DayMealSlot, string[]>>> // coach's curated recipe-id list per slot, per week_number; when set for a week, replaces the auto-detected picks for that week+slot entirely
   theme: string // coach-picked color palette id for the live dashboard & downloaded plan — falls back to 'classic' if unset or unrecognized
   confirmedSupplements: { name: string; dose: string; timing: string; duration: string; notes: string }[] // from a patient_reports row a coach explicitly reviewed & confirmed — never shown pre-confirmation
+  careServices: { name: string; icon: string; sessions: string; description?: string }[] // "What's included in your care" tiles — coach-entered, empty by default rather than generic filler copy
 }
 
 const cover = StyleSheet.create({

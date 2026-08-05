@@ -1,6 +1,6 @@
 'use client'
 import { useState, useMemo, useEffect, Fragment, type ReactNode } from 'react'
-import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp, ChevronDown, ChevronRight } from 'lucide-react'
+import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp, ChevronDown, ChevronRight, Video, MessageCircle, Users, Activity, Stethoscope, Plus, Trash2, type LucideIcon } from 'lucide-react'
 import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoadmap'
 import { parseNutritionistGuidelines } from '@/lib/pdf/parseNutritionistGuidelines'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
@@ -105,8 +105,25 @@ function asPhrase(sentence: string): string {
 // model). Recipes are a separate, single section per week — 4 slots
 // matching the recipe bank's own categories directly, not per-day.
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack']
-const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks' }
+const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert']
+const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks', dessert: 'Desserts' }
+
+// A small fixed set of icons a coach can pick from for a "what's included in
+// your care" tile — not free-form (keeps every tile visually consistent),
+// but broad enough to cover the common service types a coaching plan has.
+const CARE_ICON_OPTIONS: { key: string; label: string; Icon: LucideIcon }[] = [
+  { key: 'coaching', label: 'Coaching session', Icon: Star },
+  { key: 'video', label: 'Video call', Icon: Video },
+  { key: 'phone', label: 'Phone call', Icon: Phone },
+  { key: 'chat', label: 'Chat support', Icon: MessageCircle },
+  { key: 'nutrition', label: 'Nutrition plan', Icon: Utensils },
+  { key: 'labs', label: 'Labs / reports', Icon: Activity },
+  { key: 'wellness', label: 'Wellness check-in', Icon: HeartPulse },
+  { key: 'clinical', label: 'Clinical review', Icon: Stethoscope },
+  { key: 'group', label: 'Group session', Icon: Users },
+  { key: 'followup', label: 'Follow-up', Icon: CalendarCheck },
+]
+const CARE_ICON_MAP: Record<string, LucideIcon> = Object.fromEntries(CARE_ICON_OPTIONS.map((o) => [o.key, o.Icon]))
 
 const TOC_ITEMS: { label: string; id: string }[] = [
   { label: 'Founder’s note', id: 'founder' },
@@ -636,6 +653,17 @@ function initGroceryExport(){
   });
 }
 initGroceryExport();
+function openCareExport(id){
+  document.querySelectorAll('[data-care-body]').forEach(function(el){
+    el.style.display = (el.getAttribute('data-care-body')===id) ? 'block' : 'none';
+  });
+  var overlay = document.querySelector('[data-care-overlay]');
+  if (overlay) overlay.style.display = 'flex';
+}
+function closeCareExport(){
+  var overlay = document.querySelector('[data-care-overlay]');
+  if (overlay) overlay.style.display = 'none';
+}
 // A goal row shows "done" only for TODAY's real date — same daily-habit
 // semantics as the live app (checkedSet is keyed by today's date there
 // too), not a one-time-forever checkbox. Uses the browser's actual current
@@ -783,6 +811,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [editingWeek, setEditingWeek] = useState<number | null>(null)
   const [recipeSearch, setRecipeSearch] = useState<Partial<Record<DayMealSlot, string>>>({})
   const [theme, setTheme] = useState(data.theme && PALETTES[data.theme] ? data.theme : 'classic')
+  const [careServices, setCareServices] = useState(data.careServices || [])
+  const [openCareService, setOpenCareService] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -806,7 +836,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             lifestyle_guidelines: lifestyleText,
-            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes, weekly_manual_recipes: weeklyManualRecipes, theme },
+            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes, weekly_manual_recipes: weeklyManualRecipes, theme, care_services: careServices },
             weekly_schedule: editWeeks.map((w) => ({ ...w, actions: (w.actions || []).map((a) => a.trim()).filter(Boolean) })),
           }),
         }),
@@ -937,7 +967,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
       5
     )
     const images = new Map<string, string | null>()
-    for (const meal of ['breakfast', 'lunch', 'dinner', 'snack'] as const) {
+    for (const meal of ['breakfast', 'lunch', 'dinner', 'snack', 'dessert'] as const) {
       for (const m of selection[meal]) {
         // A recipe's own photo (set directly by the coach) always wins over
         // a tag-matched guess from the picture bank.
@@ -956,7 +986,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
       const img = matchGuideImageDistinct(query, data.imageBank, used)
       months.set(String(m.monthNumber), img?.image_url ?? null)
     }
-    const capped = { breakfast: selection.breakfast.slice(0, 2), lunch: selection.lunch.slice(0, 2), dinner: selection.dinner.slice(0, 2), snack: selection.snack.slice(0, 2) }
+    const capped = { breakfast: selection.breakfast.slice(0, 2), lunch: selection.lunch.slice(0, 2), dinner: selection.dinner.slice(0, 2), snack: selection.snack.slice(0, 2), dessert: selection.dessert.slice(0, 2) }
     return { heroImage: hero, mealMatches: capped, weekMealMatches: selection, mealImages: images, superfoodImage: superfood, monthImages: months }
   }, [data])
 
@@ -995,7 +1025,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const allWeekSlotRecipes = months.flatMap((m) => m.weeks.flatMap((w) => getSlotRecipes(w.week_number)))
 
   const allMatches = (() => {
-    const combined = [...mealMatches.breakfast, ...mealMatches.lunch, ...mealMatches.dinner, ...mealMatches.snack,
+    const combined = [...mealMatches.breakfast, ...mealMatches.lunch, ...mealMatches.dinner, ...mealMatches.snack, ...mealMatches.dessert,
       ...allWeekSlotRecipes.flatMap((s) => s.matches)]
     return combined.filter((m, i) => combined.findIndex((x) => x.recipe.id === m.recipe.id) === i)
   })()
@@ -1106,6 +1136,11 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
       const key = (el.getAttribute('data-grocery-item') || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
       el.setAttribute('onclick', `toggleGroceryItemExport('${key}', this)`)
     })
+    clone.querySelectorAll('[data-care-trigger]').forEach((el) => {
+      el.setAttribute('onclick', `openCareExport('${el.getAttribute('data-care-trigger')}')`)
+    })
+    clone.querySelectorAll('[data-care-close]').forEach((el) => el.setAttribute('onclick', 'closeCareExport()'))
+    clone.querySelectorAll('[data-care-overlay]').forEach((el) => el.setAttribute('onclick', 'if(event.target===this)closeCareExport()'))
     // The TOC bar's sticky offset (and every section's scroll-margin-top)
     // are tuned to sit below the app's own 60px site header — the
     // standalone export has no such header, so left as-is the bar would
@@ -1374,6 +1409,28 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                 ))}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+      {careServices.length > 0 && (
+        <div data-care-overlay onClick={() => setOpenCareService(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(44,36,24,0.55)', display: openCareService != null ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 100 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ position: 'relative', background: C.paper, borderRadius: 16, padding: '24px 26px', maxWidth: 420, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
+            <button data-care-close onClick={() => setOpenCareService(null)}
+              style={{ position: 'absolute', top: 18, right: 18, background: 'none', border: 'none', cursor: 'pointer', color: C.muted }}><X size={18} /></button>
+            {careServices.map((svc, i) => {
+              const Icon = CARE_ICON_MAP[svc.icon] || Star
+              return (
+                <div key={i} data-care-body={i} style={{ display: openCareService === i ? 'block' : 'none' }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 11, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                    <Icon size={22} color={C.accent} />
+                  </div>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: C.ink, paddingRight: 20, marginBottom: 4 }}>{svc.name}</div>
+                  {svc.sessions && <div style={{ fontSize: 12.5, color: C.accent, fontWeight: 700, marginBottom: 12 }}>{svc.sessions}</div>}
+                  {svc.description && <div style={{ fontSize: 13, color: C.inkSoft, lineHeight: 1.55 }}>{renderMarkdownBold(svc.description)}</div>}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
@@ -1787,11 +1844,79 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             )}
           </div>
 
-          {/* Services */}
+          {/* Services — coach-entered tiles (icon + name + sessions), tap one
+              to see the full detail in a popup. Editable mode lets the coach
+              add/remove/edit each one, including how many sessions of it
+              this specific patient has. Empty by default rather than
+              generic filler copy — nothing shows until a coach adds one. */}
           <div id="services" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
             <div style={sectionTitleStyle}><Star size={18} color={C.accent} /> What&apos;s included in your care</div>
-            <p style={bulletStyle}>Everything you&apos;re currently enrolled in, plus what&apos;s available if you want more support.</p>
-            <div style={{ fontSize: 12.5, color: C.inkSoft, background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, padding: '10px 12px' }}>{coachFirst} will walk you through what&apos;s included in your plan and any optional add-ons during your next session.</div>
+            {editable ? (
+              <>
+                <p style={{ ...bulletStyle, color: C.muted, marginBottom: 14 }}>
+                  Add each service in this patient&apos;s plan — pick an icon, name it, and note how many sessions they have (e.g. &quot;4 sessions/month&quot;, &quot;Unlimited&quot;, &quot;As needed&quot;).
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 14 }}>
+                  {careServices.map((svc, i) => (
+                    <div key={i} style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', background: C.bg }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 8 }}>
+                        <div>
+                          <div style={editLabelStyle}>Icon</div>
+                          <select style={editInputStyle} value={svc.icon} onChange={(e) => {
+                            const next = [...careServices]; next[i] = { ...svc, icon: e.target.value }; setCareServices(next)
+                          }}>
+                            {CARE_ICON_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <div style={editLabelStyle}>Service name</div>
+                          <input style={editInputStyle} value={svc.name} placeholder="e.g. 1:1 Nutrition Coaching" onChange={(e) => {
+                            const next = [...careServices]; next[i] = { ...svc, name: e.target.value }; setCareServices(next)
+                          }} />
+                        </div>
+                        <div>
+                          <div style={editLabelStyle}>Sessions</div>
+                          <input style={editInputStyle} value={svc.sessions} placeholder="e.g. 4 sessions/month" onChange={(e) => {
+                            const next = [...careServices]; next[i] = { ...svc, sessions: e.target.value }; setCareServices(next)
+                          }} />
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={editLabelStyle}>Description (optional, shown when tapped)</div>
+                        <textarea style={{ ...editInputStyle, resize: 'vertical' as const }} rows={2} value={svc.description || ''}
+                          onChange={(e) => { const next = [...careServices]; next[i] = { ...svc, description: e.target.value }; setCareServices(next) }} />
+                      </div>
+                      <button onClick={() => setCareServices(careServices.filter((_, idx) => idx !== i))}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: '#b4462f', fontSize: 12, fontWeight: 700, padding: 0 }}>
+                        <Trash2 size={13} /> Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => setCareServices([...careServices, { name: '', icon: CARE_ICON_OPTIONS[0].key, sessions: '', description: '' }])}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.rule}`, background: C.paper, color: C.ink, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+                  <Plus size={14} /> Add service
+                </button>
+              </>
+            ) : careServices.length > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12 }}>
+                {careServices.map((svc, i) => {
+                  const Icon = CARE_ICON_MAP[svc.icon] || Star
+                  return (
+                    <button key={i} data-care-trigger={i} onClick={() => setOpenCareService(i)}
+                      style={{ textAlign: 'left', padding: '14px 12px', borderRadius: 12, border: `1px solid ${C.rule}`, background: C.bg, cursor: 'pointer' }}>
+                      <div style={{ width: 34, height: 34, borderRadius: 9, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
+                        <Icon size={17} color={C.accent} />
+                      </div>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 2 }}>{svc.name}</div>
+                      {svc.sessions && <div style={{ fontSize: 11, color: C.muted }}>{svc.sessions}</div>}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <div style={{ fontSize: 13.5, color: C.muted }}>Not filled in yet — {coachFirst} will add what&apos;s included in your plan here.</div>
+            )}
           </div>
 
           {/* Track your progress — real data, not a filler table; always
