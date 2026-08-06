@@ -24,9 +24,16 @@ async function countPages(children: ReactElement[]): Promise<number> {
 // so pagination is identical to rendering it in place) to get real page
 // counts; pass two renders the full document with those numbers in the TOC.
 export async function renderGuidePdf(data: GuideData): Promise<Buffer> {
+  // A hidden section renders zero pages in ClientGuideDocument, so the
+  // cursor must skip it here too — otherwise every section after a hidden
+  // one would report a TOC page number offset by the hidden section's
+  // would-be length.
+  const isSectionHidden = (key: string) =>
+    (data.hiddenSections ?? []).includes(key) || (key === 'recipes' && (data.hiddenSections ?? []).includes('nutrition'))
   let cursor = 3 // page 1 = cover, page 2 = TOC, body starts at page 3
   const tocPageNumbers: Record<string, number> = {}
   for (const section of GUIDE_SECTIONS) {
+    if (isSectionHidden(section.key)) continue
     tocPageNumbers[section.key] = cursor
     cursor += await countPages(section.render(data))
   }

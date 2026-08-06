@@ -41,6 +41,7 @@ const crypto = require('crypto')
 const { createCanvas, ImageData } = require('canvas')
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js')
 const Groq = require('groq-sdk')
+const { parseRecipesHeuristic } = require('./heuristic-parser.js')
 
 // ── CLI args ────────────────────────────────────────────────────────────
 const args = process.argv.slice(2)
@@ -48,10 +49,14 @@ const folders = []
 let outDir = path.join(__dirname, 'output')
 let force = false
 let provider = 'groq' // --provider groq|gemini — which one to use FIRST
+let ollamaModel = 'qwen2.5:3b'
+let noHeuristic = false
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--out') { outDir = path.resolve(args[++i]); continue }
   if (args[i] === '--force') { force = true; continue }
   if (args[i] === '--provider') { provider = args[++i]; continue }
+  if (args[i] === '--ollama-model') { ollamaModel = args[++i]; continue }
+  if (args[i] === '--no-heuristic') { noHeuristic = true; continue }
   folders.push(path.resolve(args[i]))
 }
 if (folders.length === 0) {
@@ -89,11 +94,14 @@ const groq = GROQ_API_KEY ? new Groq({ apiKey: GROQ_API_KEY }) : null
 // fails until it resets (the API tells us how long) — retrying page by page
 // wastes time and never helps. So instead of retrying per-page, the first
 // time we see this specific error, we switch providers for the rest of the
-// whole run (if Gemini's available) rather than trying Groq again at all.
+// whole run rather than trying Groq again at all. Local Ollama (unlimited,
+// just slower) is preferred over Gemini here since Gemini's free tier caps
+// out at a hard 20 requests/day regardless of throttling.
 let activeProvider = provider
-const canFallbackToGemini = provider === 'groq' && !!GEMINI_API_KEY
+let ollamaAvailable = false
 console.log('='.repeat(70))
-console.log(`Provider: ${provider}` + (provider === 'groq' ? (canFallbackToGemini ? ' (Gemini fallback: ENABLED — will auto-switch if Groq hits its daily limit)' : ' (Gemini fallback: not set up — add GEMINI_API_KEY to scripts/pdf-extract/.env to enable it)') : ''))
+console.log(`Provider: ${provider}`)
+console.log(`Heuristic (no-AI) parser: ${noHeuristic ? 'DISABLED (--no-heuristic)' : 'ENABLED — tries this first on every page, only calls AI when it can\'t confidently parse a page'}`)
 console.log('='.repeat(70))
 
 // ── output dirs ─────────────────────────────────────────────────────────
@@ -301,34 +309,116 @@ async function callGemini(systemPrompt, userText, maxRetries = 6) {
   }
 }
 
-async function structurePage(pageText) {
-  if (!pageText.trim() || pageText.trim().length < 30) return []
+// ── Ollama (local, unlimited, no quota — the preferred fallback once Groq's
+// daily cap is hit) ────────────────────────────────────────────────────
+async function checkOllamaAvailable() {
+  try {
+    const res = await fetch('http://localhost:11434/api/tags')
+    if (!res.ok) return false
+    const data = await res.json()
+    const have = (data.models || []).some((m) => m.name === ollamaModel || m.name.startsWith(ollamaModel.split(':')[0] + ':'))
+    if (!have) console.log(`  Ollama is running but model "${ollamaModel}" isn't pulled — run: ollama pull ${ollamaModel}`)
+    return have
+  } catch {
+    return false
+  }
+}
+
+async function callOllama(systemPrompt, userText, maxRetries = 2) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch('http://localhost:11434/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: ollamaModel,
+          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userText }],
+          format: 'json',
+          stream: false,
+          options: { temperature: 0.1 },
+        }),
+      })
+      if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`)
+      const data = await res.json()
+      return data?.message?.content?.trim() || ''
+    } catch (e) {
+      if (attempt < maxRetries) {
+        console.log(`  Ollama error (${e.message}), retrying...`)
+        await new Promise((r) => setTimeout(r, 1000))
+        continue
+      }
+      throw e
+    }
+  }
+}
+
+// Cheap keyword guess for the one field the heuristic parser can't read off
+// the page text directly — never left blank so downstream review always has
+// something to correct rather than a missing required field.
+function guessMealType(pageText, fileName) {
+  const hay = `${fileName} ${pageText}`.toLowerCase()
+  if (/dessert|sweet treat|brownie|cookie|cake|ice cream/.test(hay)) return 'dessert'
+  if (/breakfast/.test(hay)) return 'breakfast'
+  if (/\bsnack/.test(hay)) return 'snack'
+  if (/\blunch\b/.test(hay)) return 'lunch'
+  if (/\bdinner\b/.test(hay)) return 'dinner'
+  return 'snack'
+}
+
+async function structurePage(pageText, fileName) {
+  if (!pageText.trim() || pageText.trim().length < 30) return { recipes: [], source: 'skip' }
+
+  if (!noHeuristic) {
+    const heuristicRecipes = parseRecipesHeuristic(pageText)
+    if (heuristicRecipes.length > 0) {
+      return {
+        source: 'heuristic',
+        recipes: heuristicRecipes.map((r) => ({ ...r, meal_type: guessMealType(pageText, fileName) })),
+      }
+    }
+  }
+
   const userText = pageText.slice(0, 6000)
   let raw = ''
   if (activeProvider === 'gemini') {
     raw = await callGemini(RECIPE_SYSTEM, userText)
+  } else if (activeProvider === 'ollama') {
+    raw = await callOllama(RECIPE_SYSTEM, userText)
   } else {
     try {
       raw = await callGroq([{ role: 'system', content: RECIPE_SYSTEM }, { role: 'user', content: userText }])
     } catch (e) {
-      if (!canFallbackToGemini) throw e
+      const nextProvider = ollamaAvailable ? 'ollama' : (GEMINI_API_KEY ? 'gemini' : null)
+      if (!nextProvider) throw e
       // A daily-quota error won't clear for a long time — switch for the
       // rest of the run instead of trying (and failing) Groq on every
       // remaining page. Any other error is treated as one-off.
       if (isDailyQuotaError(e)) {
-        activeProvider = 'gemini'
-        console.log(`  Groq hit its daily limit — switching to Gemini for the rest of this run.`)
+        activeProvider = nextProvider
+        console.log(`  Groq hit its daily limit — switching to ${nextProvider} for the rest of this run.`)
       } else {
-        console.log(`  Groq error (${e.message.slice(0, 120)}) — using Gemini for this page`)
+        console.log(`  Groq error (${e.message.slice(0, 120)}) — using ${nextProvider} for this page`)
       }
-      raw = await callGemini(RECIPE_SYSTEM, userText)
+      raw = activeProvider === 'ollama' || nextProvider === 'ollama' ? await callOllama(RECIPE_SYSTEM, userText) : await callGemini(RECIPE_SYSTEM, userText)
     }
   }
-  if (!raw) return []
+  if (!raw) return { recipes: [], source: activeProvider }
   try {
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed.recipes) ? parsed.recipes : []
-  } catch { return [] }
+    const recipes = Array.isArray(parsed.recipes) ? parsed.recipes : []
+    // The AI sometimes returns ingredients/steps as an array of lines instead
+    // of a single newline-joined string — normalize so every recipe in the
+    // output file has the same shape the heuristic parser and the app's
+    // recipe-bank importer both expect.
+    return {
+      recipes: recipes.map((r) => ({
+        ...r,
+        ingredients: Array.isArray(r.ingredients) ? r.ingredients.join('\n') : r.ingredients,
+        steps: Array.isArray(r.steps) ? r.steps.join('\n') : r.steps,
+      })),
+      source: activeProvider,
+    }
+  } catch { return { recipes: [], source: activeProvider } }
 }
 
 function normalizeName(name) {
@@ -383,12 +473,17 @@ async function processPdf(pdfPath) {
 
   const perPageRecipes = []
   const lifestyleChunks = []
+  let heuristicPages = 0
+  let aiPages = 0
   for (let i = 0; i < pageTexts.length; i++) {
     const pageNum = i + 1
     const text = pageTexts[i]
     let recipes = []
     try {
-      recipes = await structurePage(text)
+      const result = await structurePage(text, fileName)
+      recipes = result.recipes
+      if (result.source === 'heuristic') heuristicPages++
+      else if (recipes.length && result.source !== 'skip') aiPages++
     } catch (e) {
       console.log(`  page ${pageNum}: ${activeProvider} error — ${e.message}`)
     }
@@ -399,6 +494,7 @@ async function processPdf(pdfPath) {
       lifestyleChunks.push(`--- page ${pageNum} ---\n${text.trim()}`)
     }
   }
+  if (heuristicPages || aiPages) console.log(`  (${heuristicPages} page(s) parsed with zero AI calls, ${aiPages} page(s) needed AI)`)
 
   const mergedRecipes = mergeConsecutivePageSplits(perPageRecipes)
   const imageDir = path.join(IMAGES_DIR, slug)
@@ -444,6 +540,11 @@ function dedupeAcrossFiles(allRecipes) {
 
 // ── main ────────────────────────────────────────────────────────────────
 async function main() {
+  ollamaAvailable = await checkOllamaAvailable()
+  console.log(`Ollama fallback (model ${ollamaModel}): ${ollamaAvailable ? 'AVAILABLE' : 'not detected — start Ollama and `ollama pull ' + ollamaModel + '` to enable it'}`)
+  console.log(`Gemini fallback: ${GEMINI_API_KEY ? 'available (20 requests/day hard cap — used only if Ollama is unavailable)' : 'not set up'}`)
+  console.log('='.repeat(70))
+
   const pdfs = findPdfs(folders)
   console.log(`Found ${pdfs.length} PDF(s) across ${folders.length} folder(s).`)
   if (pdfs.length === 0) return

@@ -53,6 +53,7 @@ export type GuideData = {
   careServices: { name: string; icon: string; sessions: string; description?: string }[] // "What's included in your care" tiles — coach-entered, empty by default rather than generic filler copy
   nextAppointment: { date: string; time: string; mode: string } // shown in "When to reach us" — coach-entered, blank fields just don't render rather than showing a placeholder
   careTeam: { name: string; role: string; intro: string; date: string; time: string; mode: string }[] // "Your care team" — other providers (doctor, therapist, naturopath, etc.) beyond the primary coach, each with their own intro + appointment. Empty by default.
+  hiddenSections: string[] // section keys (GUIDE_SECTIONS keys / dashboard section ids) the coach has switched off for this patient — omitted everywhere: live dashboard, PDF, offline export
 }
 
 const cover = StyleSheet.create({
@@ -804,8 +805,16 @@ export function ClientGuideDocument({
   // back to blank if not supplied — used only by the internal counting pass.
   tocPageNumbers?: Record<string, number>
 }) {
+  // "nutrition" and "recipes" are one merged section in the live dashboard
+  // (hiding it there hides both at once) but two separate GUIDE_SECTIONS
+  // entries here — so hiding "nutrition" also hides "recipes" in the PDF,
+  // keeping the three surfaces (dashboard, PDF, export) in agreement.
+  const isSectionHidden = (key: string) =>
+    (data.hiddenSections ?? []).includes(key) || (key === 'recipes' && (data.hiddenSections ?? []).includes('nutrition'))
+  const visibleSections = GUIDE_SECTIONS.filter((s) => !isSectionHidden(s.key))
+
   const tocEntries: [string, number | ''][] = []
-  for (const section of GUIDE_SECTIONS) {
+  for (const section of visibleSections) {
     const pageNum = tocPageNumbers?.[section.key] ?? ''
     for (const label of section.tocLabels) tocEntries.push([label, pageNum])
   }
@@ -835,7 +844,7 @@ export function ClientGuideDocument({
         ))}
       </PageShell>
 
-      {GUIDE_SECTIONS.flatMap((section) => section.render(data))}
+      {visibleSections.flatMap((section) => section.render(data))}
     </Document>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useMemo, useEffect, Fragment, type ReactNode } from 'react'
-import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp, ChevronDown, ChevronRight, Video, MessageCircle, Users, Activity, Stethoscope, Plus, Trash2, type LucideIcon } from 'lucide-react'
+import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp, ChevronDown, ChevronRight, Video, MessageCircle, Users, Activity, Stethoscope, Plus, Trash2, Eye, EyeOff, type LucideIcon } from 'lucide-react'
 import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoadmap'
 import { parseNutritionistGuidelines } from '@/lib/pdf/parseNutritionistGuidelines'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
@@ -125,6 +125,24 @@ const CARE_ICON_OPTIONS: { key: string; label: string; Icon: LucideIcon }[] = [
   { key: 'followup', label: 'Follow-up', Icon: CalendarCheck },
 ]
 const CARE_ICON_MAP: Record<string, LucideIcon> = Object.fromEntries(CARE_ICON_OPTIONS.map((o) => [o.key, o.Icon]))
+
+// Small pill a coach clicks to hide/show a whole section for this patient —
+// hiding it removes it from the live page, the downloaded static HTML, and
+// the PDF (see hiddenSections in GuideData / ClientGuideDocument.tsx) all at
+// once, since all three read the same saved guide_overrides.hidden_sections.
+function SectionToggle({ hidden, onToggle }: { hidden: boolean; onToggle: () => void }) {
+  return (
+    <button onClick={onToggle} data-no-export
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12, padding: '5px 10px',
+        borderRadius: 20, border: `1px solid ${hidden ? C.accent : C.rule}`, background: hidden ? C.accentSoft : 'transparent',
+        color: hidden ? C.accent : C.muted, fontSize: 11.5, fontWeight: 700, cursor: 'pointer',
+      }}>
+      {hidden ? <EyeOff size={13} /> : <Eye size={13} />}
+      {hidden ? 'Hidden from patient — click to show' : 'Visible to patient — click to hide'}
+    </button>
+  )
+}
 
 const TOC_ITEMS: { label: string; id: string }[] = [
   { label: 'Founder’s note', id: 'founder' },
@@ -818,6 +836,15 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [openCareService, setOpenCareService] = useState<number | null>(null)
   const [nextAppointment, setNextAppointment] = useState(data.nextAppointment || { date: '', time: '', mode: '' })
   const [careTeam, setCareTeam] = useState(data.careTeam || [])
+  const [hiddenSections, setHiddenSections] = useState<string[]>(data.hiddenSections || [])
+  const isHidden = (id: string) => hiddenSections.includes(id)
+  const toggleSection = (id: string) => setHiddenSections((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  // Patient view: hide with CSS so nothing renders for them. Editor view:
+  // always show (dimmed via the toggle pill) so the coach can switch it back
+  // on — but still tag it `data-hidden-section` so downloadDashboard() strips
+  // it out of the exported static HTML even if a coach downloads mid-edit.
+  const hiddenStyle = (id: string) => (!editable && isHidden(id) ? { display: 'none' as const } : {})
+  const hiddenAttrs = (id: string) => (isHidden(id) ? { 'data-hidden-section': true } : {})
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -841,7 +868,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             lifestyle_guidelines: lifestyleText,
-            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes, weekly_manual_recipes: weeklyManualRecipes, theme, template, care_services: careServices, next_appointment: nextAppointment, care_team: careTeam },
+            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes, weekly_manual_recipes: weeklyManualRecipes, theme, template, care_services: careServices, next_appointment: nextAppointment, care_team: careTeam, hidden_sections: hiddenSections },
             weekly_schedule: editWeeks.map((w) => ({ ...w, actions: (w.actions || []).map((a) => a.trim()).filter(Boolean) })),
           }),
         }),
@@ -1066,6 +1093,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     if (!root) return
     const clone = root.cloneNode(true) as HTMLElement
     clone.querySelectorAll('[data-no-export]').forEach((el) => el.remove())
+    clone.querySelectorAll('[data-hidden-section]').forEach((el) => el.remove())
     clone.querySelectorAll('[data-meal-tab]').forEach((el) => {
       el.setAttribute('onclick', `showPlateExport('${el.getAttribute('data-meal-tab')}')`)
     })
@@ -1172,7 +1200,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           export too, not just the live page. */}
       <div data-toc-bar style={{ position: 'sticky', top: 60, zIndex: 40, background: C.paper, borderBottom: `1px solid ${C.rule}`, overflowX: 'auto' }}>
         <div style={{ maxWidth: 1180, margin: '0 auto', display: 'flex', gap: 2, padding: '4px 16px', whiteSpace: 'nowrap' }}>
-          {TOC_ITEMS.map((item, i) => (
+          {TOC_ITEMS.filter((item) => editable || !isHidden(item.id)).map((item, i) => (
             <a key={`${item.id}-${i}`} href={`#${item.id}`}
               style={{ fontSize: 11.5, fontWeight: 600, color: C.inkSoft, textDecoration: 'none', padding: '10px 9px', flexShrink: 0 }}>
               {item.label}
@@ -1473,7 +1501,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 0 }}>
           {/* Founder's note — same letter as the PDF, personalized with name + goal */}
-          <div id="founder" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+          <div id="founder" {...hiddenAttrs('founder')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('founder') }}>
+            {editable && <SectionToggle hidden={isHidden('founder')} onToggle={() => toggleSection('founder')} />}
             <div style={sectionTitleStyle}>Founder&apos;s note</div>
             <p style={bulletStyle}>{firstName},</p>
             <p style={bulletStyle}>There are eleven people in this building who already know something about you.</p>
@@ -1490,9 +1519,10 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
 
           {/* Coach */}
           {(data.coach || editable) && (
-            <div id="coach" style={{ ...cardStyle, display: 'flex', alignItems: 'center', gap: 16, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div id="coach" {...hiddenAttrs('coach')} style={{ ...cardStyle, display: 'flex', alignItems: 'center', gap: 16, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('coach') }}>
               <div style={{ width: 56, height: 56, borderRadius: 28, flexShrink: 0, background: data.coach?.photo_url ? `url(${data.coach.photo_url}) center/cover` : C.accentSoft, border: `1px solid ${C.rule}` }} />
               <div style={{ flex: 1, minWidth: 0 }}>
+                {editable && <SectionToggle hidden={isHidden('coach')} onToggle={() => toggleSection('coach')} />}
                 {editable ? (
                   <>
                     <div style={editLabelStyle}>Coach</div>
@@ -1522,7 +1552,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               whole section stays out of the DOM for a patient when there's
               nothing in it, same as the coach block above. */}
           {(careTeam.length > 0 || editable) && (
-            <div id="careteam" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div id="careteam" {...hiddenAttrs('careteam')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('careteam') }}>
+              {editable && <SectionToggle hidden={isHidden('careteam')} onToggle={() => toggleSection('careteam')} />}
               <div style={sectionTitleStyle}><Stethoscope size={18} color={C.accent} /> Your care team</div>
               {editable ? (
                 <>
@@ -1613,7 +1644,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               drill-down, recipes, check-offs, download) instead of generic
               filler copy, so a patient opening this for the first time knows
               exactly where to look. */}
-          <div id="howto" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+          <div id="howto" {...hiddenAttrs('howto')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('howto') }}>
+            {editable && <SectionToggle hidden={isHidden('howto')} onToggle={() => toggleSection('howto')} />}
             <div style={sectionTitleStyle}>How to use this guide</div>
             <p style={{ ...bulletStyle, marginBottom: 16 }}>This page is built to be opened often, not read once and forgotten. Here&apos;s where everything lives:</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
@@ -1653,7 +1685,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               weeks (same checklist content as before, just not all on screen
               at once). Edit mode keeps the old always-expanded editor below,
               since the coach needs to see every field to edit it. */}
-          <div id="roadmap" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+          <div id="roadmap" {...hiddenAttrs('roadmap')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('roadmap') }}>
+            {editable && <SectionToggle hidden={isHidden('roadmap')} onToggle={() => toggleSection('roadmap')} />}
             <div style={sectionTitleStyle}><MapPin size={18} color={C.accent} /> Your roadmap</div>
             {months.length === 0 && <div style={{ fontSize: 13.5, color: C.muted }}>Not planned yet — check back once your coach generates your roadmap.</div>}
             {!editable && months.length > 0 && (
@@ -1774,7 +1807,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
 
           {/* Lifestyle guidelines */}
           {(editable || lifestyleBullets.length > 0) && (
-            <div id="lifestyle" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+            <div id="lifestyle" {...hiddenAttrs('lifestyle')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('lifestyle') }}>
+              {editable && <SectionToggle hidden={isHidden('lifestyle')} onToggle={() => toggleSection('lifestyle')} />}
               <div style={sectionTitleStyle}><HeartPulse size={18} color={C.accent} /> Lifestyle guidelines</div>
               {heroImage && <img src={heroImage.image_url} alt={heroImage.label} style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 10, marginBottom: 14 }} />}
               {editable ? (
@@ -1790,7 +1824,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           {/* Nutrition guidelines — Power Plates, tabbed by meal (also covers
               "This week's recipes" — the PDF's separate recipe pages live
               inside each meal tab here instead) */}
-          <div id="nutrition" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+          <div id="nutrition" {...hiddenAttrs('nutrition')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('nutrition') }}>
+            {editable && <SectionToggle hidden={isHidden('nutrition')} onToggle={() => toggleSection('nutrition')} />}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 6 }}>
               <div style={sectionTitleStyle}><Utensils size={18} color={C.accent} /> Your power plates</div>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -1861,7 +1896,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           </div>
 
           {/* Superfood of the week */}
-          <div id="superfood" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+          <div id="superfood" {...hiddenAttrs('superfood')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('superfood') }}>
+            {editable && <SectionToggle hidden={isHidden('superfood')} onToggle={() => toggleSection('superfood')} />}
             <div style={sectionTitleStyle}><Sparkles size={18} color={C.accent} /> Superfood of the week</div>
             {superfoodImage && <img src={superfoodImage.image_url} alt={superfoodImage.label} style={{ width: '100%', height: 150, objectFit: 'cover', borderRadius: 10, marginBottom: 12 }} />}
             <p style={bulletStyle}>{coachFirst} picks this fresh each week around what&apos;s in season and what&apos;s actually useful for where you are right now — rather than a fixed pick that goes stale.</p>
@@ -1872,7 +1908,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               extracted prescription list (see ReportsTab.tsx's review step).
               Never shows unconfirmed/draft dosing data, and no free-text
               fallback — a table or nothing. */}
-          <div id="supplements" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+          <div id="supplements" {...hiddenAttrs('supplements')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('supplements') }}>
+            {editable && <SectionToggle hidden={isHidden('supplements')} onToggle={() => toggleSection('supplements')} />}
             <div style={sectionTitleStyle}><Pill size={18} color={C.accent} /> Your supplement plan</div>
             {data.confirmedSupplements.length > 0 ? (
               <div style={{ overflowX: 'auto', marginBottom: 10 }}>
@@ -1914,7 +1951,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               aren't assigned per specific week in this app), but broken out
               per week so buying/checking off resets fresh each week instead
               of one giant list for the whole plan. */}
-          <div id="grocery" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+          <div id="grocery" {...hiddenAttrs('grocery')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('grocery') }}>
+            {editable && <SectionToggle hidden={isHidden('grocery')} onToggle={() => toggleSection('grocery')} />}
             <div style={sectionTitleStyle}><ShoppingCart size={18} color={C.accent} /> Your shopping list</div>
             <p style={{ ...bulletStyle, marginBottom: 12 }}>Pulled straight from the ingredients of your matched recipes. Pick a week below to see it and check items off as you buy them.</p>
             {months.length === 0 ? (
@@ -1937,7 +1975,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               add/remove/edit each one, including how many sessions of it
               this specific patient has. Empty by default rather than
               generic filler copy — nothing shows until a coach adds one. */}
-          <div id="services" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+          <div id="services" {...hiddenAttrs('services')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('services') }}>
+            {editable && <SectionToggle hidden={isHidden('services')} onToggle={() => toggleSection('services')} />}
             <div style={sectionTitleStyle}><Star size={18} color={C.accent} /> What&apos;s included in your care</div>
             {editable ? (
               <>
@@ -2014,7 +2053,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               so the downloaded export's renderProgressExport() has stable
               elements to update after every toggle, even starting from a
               fresh file with zero check-ins. */}
-          <div id="track" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+          <div id="track" {...hiddenAttrs('track')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('track') }}>
+            {editable && <SectionToggle hidden={isHidden('track')} onToggle={() => toggleSection('track')} />}
             <div style={sectionTitleStyle}><CheckCircle2 size={18} color={C.accent} /> Track your progress</div>
             <p data-track-empty style={{ ...bulletStyle, color: C.muted, display: progress.totalDaysLogged === 0 ? 'block' : 'none' }}>
               No check-ins logged yet — tap a goal in your roadmap above each day you complete it, and your progress will show up here.
@@ -2039,7 +2079,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           </div>
 
           {/* When to reach us */}
-          <div id="reach" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+          <div id="reach" {...hiddenAttrs('reach')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('reach') }}>
+            {editable && <SectionToggle hidden={isHidden('reach')} onToggle={() => toggleSection('reach')} />}
             <div style={sectionTitleStyle}><Phone size={18} color={C.accent} /> When to reach us</div>
             {editable ? (
               <div style={{ background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
@@ -2090,7 +2131,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           </div>
 
           {/* FAQ */}
-          <div id="faq" style={{ ...cardStyle, marginBottom: 0, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+          <div id="faq" {...hiddenAttrs('faq')} style={{ ...cardStyle, marginBottom: 0, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('faq') }}>
+            {editable && <SectionToggle hidden={isHidden('faq')} onToggle={() => toggleSection('faq')} />}
             <div style={sectionTitleStyle}><HelpCircle size={18} color={C.accent} /> Questions we hear most</div>
             {[
               ['What if I can’t finish everything on my plate exactly as shown?', 'Getting the food groups roughly right matters far more than hitting exact portions.'],

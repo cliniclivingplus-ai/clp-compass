@@ -14,7 +14,16 @@ It does NOT touch your live database or the app. It only reads your PDFs and wri
 2. Make sure your Groq API key is available. Either:
    - it's already in the main app's `.env.local` file (it is, if you've used this app before — nothing to do), or
    - create a file named `.env` in this folder with one line: `GROQ_API_KEY=your-key-here`
-3. (Recommended for a batch this size) Add a Gemini key too, in the same `.env` file: `GEMINI_API_KEY=your-key-here`. Groq's free tier has a daily token cap that a 66+ file run can hit partway through — if a Gemini key is present, the script automatically switches to it for the rest of the run the moment Groq starts failing, no restart needed. If you don't add one, the script just tells you it hit the Groq limit and you re-run later once it resets.
+3. **Install [Ollama](https://ollama.com) and pull a small local model** — this is what makes a 2000+ file run actually finish. Most recipe pages now get parsed by a built-in deterministic reader that needs no AI call at all (see "How it avoids AI calls" below), and Ollama runs locally with no daily cap for the pages that still need one, once Groq's free daily quota runs out partway through a big batch:
+   ```bash
+   ollama pull qwen2.5:3b
+   ```
+   Leave the Ollama app running in the background while you run the extractor. If you'd rather use a different local model, pass `--ollama-model <name>`.
+4. (Optional, low priority now) A Gemini key can still be added to `.env` as `GEMINI_API_KEY=your-key-here` as a third fallback if Ollama isn't running — but Gemini's free tier caps out at a hard **20 requests/day** regardless of retries, so it's not useful for bulk work. Ollama is the recommended fallback.
+
+## How it avoids AI calls
+
+Every sampled coach PDF uses one of two consistent templates for its recipe pages (a two-column "ingredients / directions" layout, or a stacked "Ingredients" / "Instructions" layout). The script recognizes these directly from the raw extracted text — no AI, instant, 100% grounded in the actual words on the page — and only calls an AI provider for pages that don't match either shape (guideline pages, routines, table-of-contents pages, or a recipe laid out unusually). In testing this cut AI calls by roughly 80-90% on real files. The per-file log line `(N page(s) parsed with zero AI calls, M page(s) needed AI)` shows the split for each PDF. Pass `--no-heuristic` to disable this and send every page to AI (useful for comparison, not recommended for a large batch).
 
 ## Running it
 
