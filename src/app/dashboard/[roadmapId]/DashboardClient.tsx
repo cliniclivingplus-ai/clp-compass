@@ -139,7 +139,7 @@ function SectionToggle({ hidden, onToggle }: { hidden: boolean; onToggle: () => 
         color: hidden ? C.accent : C.muted, fontSize: 11.5, fontWeight: 700, cursor: 'pointer',
       }}>
       {hidden ? <EyeOff size={13} /> : <Eye size={13} />}
-      {hidden ? 'Hidden from patient — click to show' : 'Visible to patient — click to hide'}
+      {hidden ? 'Hidden from patient, click to show' : 'Visible to patient, click to hide'}
     </button>
   )
 }
@@ -372,7 +372,7 @@ function RecipeBody({ recipe, imageUrl }: { recipe: RecipeMatch['recipe']; image
         </div>
         {benefits.map((b, i) => {
           const [name, ...rest] = b.split(/\s*—\s*|\s+-\s+/)
-          const desc = rest.join(' — ')
+          const desc = rest.join(', ')
           const BenefitIcon = BENEFIT_ICONS[i % BENEFIT_ICONS.length]
           return (
             <div key={i} style={{ display: 'flex', gap: 10, padding: '11px 0', borderBottom: i < benefits.length - 1 ? `1px solid ${C.rule}` : 'none' }}>
@@ -380,7 +380,7 @@ function RecipeBody({ recipe, imageUrl }: { recipe: RecipeMatch['recipe']; image
                 <BenefitIcon size={13} color={C.accent} />
               </div>
               <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.55 }}>
-                {desc ? <><strong>{name}</strong> — {desc}</> : b}
+                {desc ? <><strong>{name}:</strong> {desc}</> : b}
               </div>
             </div>
           )
@@ -879,12 +879,12 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
       ])
       if (!roadmapRes.ok || !patientRes.ok) {
         const failed = !roadmapRes.ok ? await roadmapRes.json().catch(() => null) : await patientRes.json().catch(() => null)
-        setSaveError(failed?.error || 'Save failed — try again.')
+        setSaveError(failed?.error || 'Save failed, try again.')
         return
       }
       setSaved(true); setTimeout(() => setSaved(false), 2000)
     } catch {
-      setSaveError('Network error — try again.')
+      setSaveError('Network error, try again.')
     } finally { setSaving(false) }
   }
 
@@ -1162,7 +1162,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
       monthLabel: m.monthLabel,
       weeks: m.weeks.map((w) => ({ week_number: w.week_number, totalActions: w.actions?.length ?? 0 })),
     }))
-    const title = (data.patient?.full_name || 'Your') + "'s Plan — Clinic Living Plus"
+    const title = (data.patient?.full_name || 'Your') + "'s Plan, Clinic Living Plus"
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1257,7 +1257,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                       ← Back to weeks
                     </button>
 
-                    <div style={{ ...weekBoxLabel, marginBottom: 10 }}>Sunday to Saturday — this week&apos;s goals</div>
+                    <div style={{ ...weekBoxLabel, marginBottom: 10 }}>Sunday to Saturday, this week&apos;s goals</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
                       {DAY_LABELS.map((day) => {
                         const dayId = `${w.week_number}-${day}`
@@ -1309,7 +1309,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                             style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 10, border: `1px solid ${C.rule}`, background: C.bg, cursor: 'pointer' }}>
                             <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{SLOT_LABELS[slot]}</div>
                             <div style={{ fontSize: 11.5, color: matches.length ? C.accent : C.muted, marginTop: 4, fontWeight: 600 }}>
-                              {matches.length ? `${matches.length} recipe${matches.length === 1 ? '' : 's'}` : `Not detected yet — ${coachFirst} will add some.`}
+                              {matches.length ? `${matches.length} recipe${matches.length === 1 ? '' : 's'}` : `Not detected yet, ${coachFirst} will add some.`}
                             </div>
                           </button>
                         )
@@ -1323,7 +1323,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: C.accent, fontSize: 12.5, fontWeight: 700, padding: 0, marginBottom: 12 }}>
                           ← Back to meal slots
                         </button>
-                        <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 10 }}>{SLOT_LABELS[slot]} — picked for your plan</div>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 10 }}>{SLOT_LABELS[slot]}, picked for your plan</div>
                         {matches.length > 0 ? (
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
                             {matches.map((m) => (
@@ -1342,7 +1342,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                             ))}
                           </div>
                         ) : (
-                          <div style={{ fontSize: 12.5, color: C.muted }}>Nothing detected for {SLOT_LABELS[slot].toLowerCase()} yet — {coachFirst} will add some.</div>
+                          <div style={{ fontSize: 12.5, color: C.muted }}>Nothing detected for {SLOT_LABELS[slot].toLowerCase()} yet, {coachFirst} will add some.</div>
                         )}
                       </div>
                       )
@@ -1352,7 +1352,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                 ))}
               </div>
             ))}
-            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 16 }}>Tap a goal each day you complete it — checking today ({today}) tracks it for your coach to review.</div>
+            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 16 }}>Tap a goal each day you complete it. Checking today ({today}) tracks it for your coach to review.</div>
           </div>
         </div>
       )}
@@ -1481,7 +1481,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   </button>
                 ))}
               </div>
-              <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>Changes only what the patient sees — you always edit here in Classic, regardless of which one is picked.</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>Changes only what the patient sees. You always edit here in Classic, regardless of which one is picked.</div>
             </div>
           ) : (
             <div style={{ fontSize: 13.5, color: C.inkSoft, marginTop: 6, maxWidth: 480, marginLeft: 'auto', marginRight: 'auto' }}>{goalLabel}</div>
@@ -1506,12 +1506,12 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             <div style={sectionTitleStyle}>Founder&apos;s note</div>
             <p style={bulletStyle}>{firstName},</p>
             <p style={bulletStyle}>There are eleven people in this building who already know something about you.</p>
-            <p style={bulletStyle}>Not just your name — though it&apos;s already underlined twice in your file. Someone has read the notes from your consult call. Someone already knows which foods actually excite you, the dish you&apos;d genuinely look forward to, not just tolerate. And if you&apos;ve already walked through our doors before today, one of us probably remembers exactly where you sat.</p>
-            <p style={bulletStyle}>Your wellness coach said a small, quiet word to herself before she uploaded this document — the kind of thing she does for every plan, whether or not anyone ever finds out. Your doctor has already opened a new tab on her computer, right next to your history. It&apos;s empty for now. She&apos;s waiting to fill it with everything you&apos;re about to do.</p>
-            <p style={bulletStyle}>Here&apos;s the part I want you to actually believe: we are genuinely excited for you. Not in the polite, clinical, thank-you-for-choosing-us way. In the way you&apos;d be excited watching someone you love finally get somewhere they&apos;ve been trying to reach for years. Every small win on the way to {asPhrase(goalLabel.toLowerCase())} — the first night you sleep straight through, the first craving that doesn&apos;t win, the first lab report that makes your doctor sit up a little straighter — somebody here is going to see it and quietly punch the air.</p>
+            <p style={bulletStyle}>Not just your name, though it&apos;s already underlined twice in your file. Someone has read the notes from your consult call. Someone already knows which foods actually excite you, the dish you&apos;d genuinely look forward to, not just tolerate. And if you&apos;ve already walked through our doors before today, one of us probably remembers exactly where you sat.</p>
+            <p style={bulletStyle}>Your wellness coach said a small, quiet word to herself before she uploaded this document, the kind of thing she does for every plan, whether or not anyone ever finds out. Your doctor has already opened a new tab on her computer, right next to your history. It&apos;s empty for now. She&apos;s waiting to fill it with everything you&apos;re about to do.</p>
+            <p style={bulletStyle}>Here&apos;s the part I want you to actually believe: we are genuinely excited for you. Not in the polite, clinical, thank-you-for-choosing-us way. In the way you&apos;d be excited watching someone you love finally get somewhere they&apos;ve been trying to reach for years. Every small win on the way to {asPhrase(goalLabel.toLowerCase())}, the first night you sleep straight through, the first craving that doesn&apos;t win, the first lab report that makes your doctor sit up a little straighter, somebody here is going to see it and quietly punch the air.</p>
             <p style={bulletStyle}>None of that is a metaphor. It&apos;s Tuesday-morning-huddle real.</p>
-            <p style={bulletStyle}>A year before I started Clinic Living Plus, I was the patient across the table, asking a question and getting an answer that didn&apos;t hold up when I looked closer. That gap — between what people are told and what&apos;s actually true about their own body — is the entire reason this place exists.</p>
-            <p style={bulletStyle}>So here&apos;s what I can promise: this document was not templated. A coach spent ninety real minutes listening to your actual life before a single recipe in here was chosen. What happens next is mostly on you. What happens around you — the noticing, the small adjustments, the quiet cheering at every step — that part has already begun.</p>
+            <p style={bulletStyle}>A year before I started Clinic Living Plus, I was the patient across the table, asking a question and getting an answer that didn&apos;t hold up when I looked closer. That gap, between what people are told and what&apos;s actually true about their own body, is the entire reason this place exists.</p>
+            <p style={bulletStyle}>So here&apos;s what I can promise: this document was not templated. A coach spent ninety real minutes listening to your actual life before a single recipe in here was chosen. What happens next is mostly on you. What happens around you, the noticing, the small adjustments, the quiet cheering at every step, has already begun.</p>
             <p style={bulletStyle}>Come find us when something in here surprises you. We&apos;d love to hear it.</p>
             <div style={{ marginTop: 14, fontSize: 13, fontWeight: 700, color: C.ink }}>Roshni Sanghvi</div>
             <div style={{ fontSize: 11, color: C.muted, letterSpacing: '0.04em' }}>FOUNDER, CLINIC LIVING PLUS</div>
@@ -1527,13 +1527,13 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   <>
                     <div style={editLabelStyle}>Coach</div>
                     <select style={editInputStyle} value={nutritionistId} onChange={(e) => setNutritionistId(e.target.value)}>
-                      <option value="">— Select a coach —</option>
+                      <option value="">Select a coach</option>
                       {coaches.map((c) => <option key={c.id} value={c.id}>{c.full_name}</option>)}
                     </select>
-                    <div style={{ fontSize: 11, color: C.muted, margin: '5px 0 10px' }}>Photo, designation and bio come from the coach&apos;s own profile — updates after you save.</div>
+                    <div style={{ fontSize: 11, color: C.muted, margin: '5px 0 10px' }}>Photo, designation and bio come from the coach&apos;s own profile, updates after you save.</div>
                     <textarea style={{ ...editInputStyle, resize: 'vertical' as const, lineHeight: 1.5, fontStyle: 'italic' }} rows={2}
                       value={coachQuote} onChange={(e) => setCoachQuote(e.target.value)}
-                      placeholder={`Personal callback quote, e.g. "${firstName} — I remember what you said about..." — or leave blank.`} />
+                      placeholder={`Personal callback quote, e.g. "${firstName}, I remember what you said about..." or leave blank.`} />
                   </>
                 ) : (
                   <>
@@ -1558,7 +1558,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               {editable ? (
                 <>
                   <p style={{ ...bulletStyle, color: C.muted, marginBottom: 14 }}>
-                    Add anyone else on this patient&apos;s care team — a doctor, therapist, naturopath, or other specialist — with a short intro and their appointment.
+                    Add anyone else on this patient&apos;s care team, a doctor, therapist, naturopath, or other specialist, with a short intro and their appointment.
                   </p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 14 }}>
                     {careTeam.map((member, i) => (
@@ -1598,7 +1598,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                             <div style={editLabelStyle}>Mode</div>
                             <select style={editInputStyle} value={member.mode}
                               onChange={(e) => { const next = [...careTeam]; next[i] = { ...member, mode: e.target.value }; setCareTeam(next) }}>
-                              <option value="">— Select —</option>
+                              <option value="">Select</option>
                               <option value="In-person">In-person</option>
                               <option value="Virtual">Virtual</option>
                               <option value="In-person / Virtual">In-person / Virtual</option>
@@ -1650,11 +1650,11 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             <p style={{ ...bulletStyle, marginBottom: 16 }}>This page is built to be opened often, not read once and forgotten. Here&apos;s where everything lives:</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
               {[
-                { icon: MapPin, title: 'Your roadmap', text: 'Tap a month, then a week, to see that week’s goals day by day — tap any day to expand it, and tap a meal slot to see the recipes picked for you.' },
-                { icon: CheckCircle2, title: 'Check off as you go', text: 'Tap a goal each day you actually do it. It’s tracked under “Track your progress” below, so your coach can see real adherence before your next session — not a guess.' },
-                { icon: ChefHat, title: 'Recipes update as you go', text: 'Matched to your notes and diet — if one looks off or missing, tell ' + coachFirst + ' rather than skipping it. New ones appear here automatically, no reprinting needed.' },
-                { icon: Pill, title: 'Supplements, if any', text: 'A supplement table only shows up here once ' + coachFirst + ' has reviewed and confirmed it — if that section is empty, none is prescribed yet.' },
-                { icon: HelpCircle, title: 'When in doubt, ask', text: 'If anything here feels unclear or off, reach ' + coachFirst + ' before improvising — that’s exactly what they’re there for.' },
+                { icon: MapPin, title: 'Your roadmap', text: 'Tap a month, then a week, to see that week’s goals day by day. Tap any day to expand it, and tap a meal slot to see the recipes picked for you.' },
+                { icon: CheckCircle2, title: 'Check off as you go', text: 'Tap a goal each day you actually do it. It’s tracked under “Track your progress” below, so your coach can see real adherence before your next session, not a guess.' },
+                { icon: ChefHat, title: 'Recipes update as you go', text: 'Matched to your notes and diet. If one looks off or missing, tell ' + coachFirst + ' rather than skipping it. New ones appear here automatically, no reprinting needed.' },
+                { icon: Pill, title: 'Supplements, if any', text: 'A supplement table only shows up here once ' + coachFirst + ' has reviewed and confirmed it. If that section is empty, none is prescribed yet.' },
+                { icon: HelpCircle, title: 'When in doubt, ask', text: 'If anything here feels unclear or off, reach ' + coachFirst + ' before improvising, that’s exactly what they’re there for.' },
               ].map(({ icon: Icon, title, text }) => (
                 <div key={title} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                   <div style={{ width: 32, height: 32, borderRadius: 9, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -1688,7 +1688,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           <div id="roadmap" {...hiddenAttrs('roadmap')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('roadmap') }}>
             {editable && <SectionToggle hidden={isHidden('roadmap')} onToggle={() => toggleSection('roadmap')} />}
             <div style={sectionTitleStyle}><MapPin size={18} color={C.accent} /> Your roadmap</div>
-            {months.length === 0 && <div style={{ fontSize: 13.5, color: C.muted }}>Not planned yet — check back once your coach generates your roadmap.</div>}
+            {months.length === 0 && <div style={{ fontSize: 13.5, color: C.muted }}>Not planned yet, check back once your coach generates your roadmap.</div>}
             {!editable && months.length > 0 && (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14 }}>
@@ -1722,7 +1722,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               <div style={{ ...cardStyle, background: C.bg, marginBottom: 16 }}>
                 <div style={sectionTitleStyle}>Recipes for the week</div>
                 <p style={{ ...bulletStyle, color: C.muted, marginBottom: 14 }}>
-                  Pick which week you&apos;re curating, then check or uncheck recipes to set the exact bunch (4–5 recommended) shown to the patient for that week&apos;s slot. Each slot pre-checks the recipes auto-detected by tag/keyword match against this patient&apos;s concern and diet notes — different weeks can have different recipes.
+                  Pick which week you&apos;re curating, then check or uncheck recipes to set the exact bunch (4-5 recommended) shown to the patient for that week&apos;s slot. Each slot pre-checks the recipes auto-detected by tag/keyword match against this patient&apos;s concern and diet notes. Different weeks can have different recipes.
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                   {months.flatMap((m) => m.weeks).map((w: WeeklyPlan) => (
@@ -1864,7 +1864,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   </div>
                   {recipes.length > 0 ? (
                     <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.rule}` }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Recipes for {meal} — picked for your plan</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Recipes for {meal}, picked for your plan</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {recipes.map((m) => {
                           const img = mealImages.get(m.recipe.id)
@@ -1887,7 +1887,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                     </div>
                   ) : (
                     <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.rule}`, fontSize: 12.5, color: C.muted }}>
-                      Nothing in the recipe bank is tagged to match your specific concern or diet notes yet for {meal} — {coachFirst} will hand you a recipe fresh for this week instead.
+                      Nothing in the recipe bank is tagged to match your specific concern or diet notes yet for {meal}, {coachFirst} will hand you a recipe fresh for this week instead.
                     </div>
                   )}
                 </div>
@@ -1900,7 +1900,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             {editable && <SectionToggle hidden={isHidden('superfood')} onToggle={() => toggleSection('superfood')} />}
             <div style={sectionTitleStyle}><Sparkles size={18} color={C.accent} /> Superfood of the week</div>
             {superfoodImage && <img src={superfoodImage.image_url} alt={superfoodImage.label} style={{ width: '100%', height: 150, objectFit: 'cover', borderRadius: 10, marginBottom: 12 }} />}
-            <p style={bulletStyle}>{coachFirst} picks this fresh each week around what&apos;s in season and what&apos;s actually useful for where you are right now — rather than a fixed pick that goes stale.</p>
+            <p style={bulletStyle}>{coachFirst} picks this fresh each week around what&apos;s in season and what&apos;s actually useful for where you are right now, rather than a fixed pick that goes stale.</p>
             <div style={{ fontSize: 11.5, color: C.muted }}>You&apos;ll get this alongside your recipes each week, with a short note on why it was chosen for you specifically.</div>
           </div>
 
@@ -1927,9 +1927,9 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                       <Fragment key={i}>
                         <tr style={{ borderTop: `1px solid ${C.rule}` }}>
                           <td style={{ padding: '9px 10px 9px 0', fontWeight: 700, color: C.ink }}>{s.name}</td>
-                          <td style={{ padding: '9px 10px 9px 0', color: C.ink }}>{s.dose || '—'}</td>
-                          <td style={{ padding: '9px 10px 9px 0', color: C.ink }}>{s.timing || '—'}</td>
-                          <td style={{ padding: '9px 0', color: C.ink }}>{s.duration || '—'}</td>
+                          <td style={{ padding: '9px 10px 9px 0', color: C.ink }}>{s.dose}</td>
+                          <td style={{ padding: '9px 10px 9px 0', color: C.ink }}>{s.timing}</td>
+                          <td style={{ padding: '9px 0', color: C.ink }}>{s.duration}</td>
                         </tr>
                         {s.notes && (
                           <tr>
@@ -1942,7 +1942,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                 </table>
               </div>
             ) : (
-              <p style={bulletStyle}>No supplements on file yet — {coachFirst} will add these once your plan calls for them.</p>
+              <p style={bulletStyle}>No supplements on file yet, {coachFirst} will add these once your plan calls for them.</p>
             )}
             <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8 }}>Don&apos;t start, stop, or change a dose without confirming with {coachFirst} first.</div>
           </div>
@@ -1956,7 +1956,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             <div style={sectionTitleStyle}><ShoppingCart size={18} color={C.accent} /> Your shopping list</div>
             <p style={{ ...bulletStyle, marginBottom: 12 }}>Pulled straight from the ingredients of your matched recipes. Pick a week below to see it and check items off as you buy them.</p>
             {months.length === 0 ? (
-              <div style={{ fontSize: 13.5, color: C.muted }}>Not planned yet — check back once your coach generates your roadmap.</div>
+              <div style={{ fontSize: 13.5, color: C.muted }}>Not planned yet, check back once your coach generates your roadmap.</div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14 }}>
                 {months.map((m) => (
@@ -1981,7 +1981,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             {editable ? (
               <>
                 <p style={{ ...bulletStyle, color: C.muted, marginBottom: 14 }}>
-                  Add each service in this patient&apos;s plan — pick an icon, name it, and note how many sessions they have (e.g. &quot;4 sessions/month&quot;, &quot;Unlimited&quot;, &quot;As needed&quot;).
+                  Add each service in this patient&apos;s plan, pick an icon, name it, and note how many sessions they have (e.g. &quot;4 sessions/month&quot;, &quot;Unlimited&quot;, &quot;As needed&quot;).
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 14 }}>
                   {careServices.map((svc, i) => (
@@ -2042,7 +2042,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                 })}
               </div>
             ) : (
-              <div style={{ fontSize: 13.5, color: C.muted }}>Not filled in yet — {coachFirst} will add what&apos;s included in your plan here.</div>
+              <div style={{ fontSize: 13.5, color: C.muted }}>Not filled in yet, {coachFirst} will add what&apos;s included in your plan here.</div>
             )}
           </div>
 
@@ -2057,7 +2057,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             {editable && <SectionToggle hidden={isHidden('track')} onToggle={() => toggleSection('track')} />}
             <div style={sectionTitleStyle}><CheckCircle2 size={18} color={C.accent} /> Track your progress</div>
             <p data-track-empty style={{ ...bulletStyle, color: C.muted, display: progress.totalDaysLogged === 0 ? 'block' : 'none' }}>
-              No check-ins logged yet — tap a goal in your roadmap above each day you complete it, and your progress will show up here.
+              No check-ins logged yet, tap a goal in your roadmap above each day you complete it, and your progress will show up here.
             </p>
             <div data-track-content style={{ display: progress.totalDaysLogged === 0 ? 'none' : 'block' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 22 }}>
@@ -2065,7 +2065,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                 <StatCard dataStat="days" icon={<CalendarCheck size={14} color={C.green} />} value={progress.totalDaysLogged} label="days logged, total" color={C.green} />
                 <StatCard dataStat="goals" icon={<Target size={14} color={C.greenDeep} />} value={`${progress.goalsDone}/${progress.totalActionsInPlan}`} label="goals accomplished" color={C.greenDeep} />
                 <StatCard dataStat="best" dataStatLabel="best" icon={<TrendingUp size={14} color={C.accent} />}
-                  value={progress.bestMonth ? `${progress.bestMonth.pct}%` : '—'}
+                  value={progress.bestMonth ? `${progress.bestMonth.pct}%` : '0%'}
                   label={progress.bestMonth ? `best month · ${progress.bestMonth.monthLabel}` : 'best month'} color={C.accent} />
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 12 }}>Goals completed by month</div>
@@ -2100,7 +2100,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                     <div style={editLabelStyle}>Mode</div>
                     <select style={editInputStyle} value={nextAppointment.mode}
                       onChange={(e) => setNextAppointment({ ...nextAppointment, mode: e.target.value })}>
-                      <option value="">— Select —</option>
+                      <option value="">Select</option>
                       <option value="In-person">In-person</option>
                       <option value="Virtual">Virtual</option>
                       <option value="In-person / Virtual">In-person / Virtual</option>
@@ -2136,8 +2136,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             <div style={sectionTitleStyle}><HelpCircle size={18} color={C.accent} /> Questions we hear most</div>
             {[
               ['What if I can’t finish everything on my plate exactly as shown?', 'Getting the food groups roughly right matters far more than hitting exact portions.'],
-              ['What if I miss a few days on my habit tracker?', 'Log what actually happened, not what you wish had happened — an honest gap tells your coach more than a perfect-looking week.'],
-              ['Can I eat something that’s not on the lists?', 'Yes — the lists are what to lean on, not a ban on everything else. Ask your coach if unsure.'],
+              ['What if I miss a few days on my habit tracker?', 'Log what actually happened, not what you wish had happened. An honest gap tells your coach more than a perfect-looking week.'],
+              ['Can I eat something that’s not on the lists?', 'Yes, the lists are what to lean on, not a ban on everything else. Ask your coach if unsure.'],
             ].map(([q, a], i) => {
               const isOpen = openFaq === i
               return (

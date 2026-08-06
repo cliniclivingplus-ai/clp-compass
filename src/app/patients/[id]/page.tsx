@@ -60,7 +60,7 @@ const TABS = [
 type TabKey = (typeof TABS)[number]['key']
 
 function fmtDate(d?: string) {
-  if (!d) return '—'
+  if (!d) return ''
   return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 function daysAgo(d?: string) {
@@ -187,7 +187,7 @@ export default function PatientPage() {
         <div style={{ display: 'flex', gap: 28, marginTop: 18, paddingTop: 16, borderTop: `1px solid ${C.line}` }}>
           <Stat label="Sessions" value={String(counts.sessions)} />
           <Stat label="Roadmaps" value={String(counts.roadmaps)} />
-          <Stat label="Last seen" value={daysAgo(lastSession) || '—'} />
+          <Stat label="Last seen" value={daysAgo(lastSession) || 'Not yet'} />
           <Stat label="Since" value={fmtDate(patient.created_at)} />
         </div>
       </div>

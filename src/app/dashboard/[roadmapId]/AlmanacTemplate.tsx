@@ -302,7 +302,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
             <GrowthTree pct={adherencePct} />
           </div>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.6 }}>
-            {totalActionsInPlan > 0 ? `${GROWTH_LABELS[adherencePct >= 85 ? 4 : adherencePct >= 60 ? 3 : adherencePct >= 35 ? 2 : adherencePct >= 10 ? 1 : 0]} · ${goalsDone}/${totalActionsInPlan} goals tracked` : 'Your progress tree — check off goals in your plan to grow it'}
+            {totalActionsInPlan > 0 ? `${GROWTH_LABELS[adherencePct >= 85 ? 4 : adherencePct >= 60 ? 3 : adherencePct >= 35 ? 2 : adherencePct >= 10 ? 1 : 0]} · ${goalsDone}/${totalActionsInPlan} goals tracked` : 'Your progress tree, check off goals in your plan to grow it'}
           </div>
         </div>
       </section>
@@ -315,12 +315,12 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <div style={{ marginTop: 20, fontSize: '0.95rem', lineHeight: 1.75 }}>
             <p>{firstName},</p>
             <p>There are eleven people in this building who already know something about you.</p>
-            <p>Not just your name — though it&apos;s already underlined twice in your file. Someone has read the notes from your consult call. Someone already knows which foods actually excite you, the dish you&apos;d genuinely look forward to, not just tolerate. And if you&apos;ve already walked through our doors before today, one of us probably remembers exactly where you sat.</p>
-            <p>Your wellness coach said a small, quiet word to herself before she uploaded this document — the kind of thing she does for every plan, whether or not anyone ever finds out. Your doctor has already opened a new tab on her computer, right next to your history. It&apos;s empty for now. She&apos;s waiting to fill it with everything you&apos;re about to do.</p>
-            <p>Here&apos;s the part I want you to actually believe: we are genuinely excited for you. Not in the polite, clinical, thank-you-for-choosing-us way. In the way you&apos;d be excited watching someone you love finally get somewhere they&apos;ve been trying to reach for years. Every small win on the way to {asPhrase(data.goalLabel.toLowerCase())} — the first night you sleep straight through, the first craving that doesn&apos;t win, the first lab report that makes your doctor sit up a little straighter — somebody here is going to see it and quietly punch the air.</p>
+            <p>Not just your name, though it&apos;s already underlined twice in your file. Someone has read the notes from your consult call. Someone already knows which foods actually excite you, the dish you&apos;d genuinely look forward to, not just tolerate. And if you&apos;ve already walked through our doors before today, one of us probably remembers exactly where you sat.</p>
+            <p>Your wellness coach said a small, quiet word to herself before she uploaded this document, the kind of thing she does for every plan, whether or not anyone ever finds out. Your doctor has already opened a new tab on her computer, right next to your history. It&apos;s empty for now. She&apos;s waiting to fill it with everything you&apos;re about to do.</p>
+            <p>Here&apos;s the part I want you to actually believe: we are genuinely excited for you. Not in the polite, clinical, thank-you-for-choosing-us way. In the way you&apos;d be excited watching someone you love finally get somewhere they&apos;ve been trying to reach for years. Every small win on the way to {asPhrase(data.goalLabel.toLowerCase())}, the first night you sleep straight through, the first craving that doesn&apos;t win, the first lab report that makes your doctor sit up a little straighter, somebody here is going to see it and quietly punch the air.</p>
             <p>None of that is a metaphor. It&apos;s Tuesday-morning-huddle real.</p>
-            <p>A year before I started Clinic Living Plus, I was the patient across the table, asking a question and getting an answer that didn&apos;t hold up when I looked closer. That gap — between what people are told and what&apos;s actually true about their own body — is the entire reason this place exists.</p>
-            <p>So here&apos;s what I can promise: this document was not templated. A coach spent ninety real minutes listening to your actual life before a single recipe in here was chosen. What happens next is mostly on you. What happens around you — the noticing, the small adjustments, the quiet cheering at every step — that part has already begun.</p>
+            <p>A year before I started Clinic Living Plus, I was the patient across the table, asking a question and getting an answer that didn&apos;t hold up when I looked closer. That gap, between what people are told and what&apos;s actually true about their own body, is the entire reason this place exists.</p>
+            <p>So here&apos;s what I can promise: this document was not templated. A coach spent ninety real minutes listening to your actual life before a single recipe in here was chosen. What happens next is mostly on you. What happens around you, the noticing, the small adjustments, the quiet cheering at every step, has already begun.</p>
             <p>Come find us when something in here surprises you. We&apos;d love to hear it.</p>
             <p style={{ marginTop: 20, marginBottom: 0, fontFamily: "'Fraunces', serif", fontWeight: 500, fontSize: '1.05rem' }}>Roshni Sanghvi</p>
             <p style={{ marginTop: 2, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.72rem', letterSpacing: '0.08em', opacity: 0.6 }}>FOUNDER, CLINIC LIVING PLUS</p>
@@ -376,11 +376,11 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <p style={{ marginTop: 16, marginBottom: 20, fontSize: '0.95rem', lineHeight: 1.6 }}>This page is built to be opened often, not read once and forgotten. Here&apos;s where everything lives:</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {[
-              { title: 'Your roadmap', text: 'Tap a month, then a week, to see that week’s goals — tap a meal slot to see the recipes picked for you.' },
-              { title: 'Check off as you go', text: 'Tap a goal each day you actually do it. It’s tracked under “Track your progress” below, so ' + coachFirst + ' can see real adherence before your next session — not a guess.' },
-              { title: 'Recipes update as you go', text: 'Matched to your notes and diet — if one looks off or missing, tell ' + coachFirst + ' rather than skipping it.' },
-              { title: 'Supplements, if any', text: 'A supplement table only shows up here once ' + coachFirst + ' has reviewed and confirmed it — if that section is empty, none is prescribed yet.' },
-              { title: 'When in doubt, ask', text: 'If anything here feels unclear or off, reach ' + coachFirst + ' before improvising — that’s exactly what they’re there for.' },
+              { title: 'Your roadmap', text: 'Tap a month, then a week, to see that week’s goals. Tap a meal slot to see the recipes picked for you.' },
+              { title: 'Check off as you go', text: 'Tap a goal each day you actually do it. It’s tracked under “Track your progress” below, so ' + coachFirst + ' can see real adherence before your next session, not a guess.' },
+              { title: 'Recipes update as you go', text: 'Matched to your notes and diet. If one looks off or missing, tell ' + coachFirst + ' rather than skipping it.' },
+              { title: 'Supplements, if any', text: 'A supplement table only shows up here once ' + coachFirst + ' has reviewed and confirmed it. If that section is empty, none is prescribed yet.' },
+              { title: 'When in doubt, ask', text: 'If anything here feels unclear or off, reach ' + coachFirst + ' before improvising, that’s exactly what they’re there for.' },
             ].map(({ title, text }) => (
               <div key={title}>
                 <div style={{ fontWeight: 600, fontSize: '0.92rem', marginBottom: 3 }}>{title}</div>
@@ -525,7 +525,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                   <div key={w.week_number} style={{ borderTop: '1px solid rgba(243,236,218,0.18)', paddingTop: 24 }}>
                     {(w.actions?.length ?? 0) > 0 && (
                       <div style={{ marginBottom: 28 }}>
-                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1, opacity: 0.85 }}>This week&apos;s goals — tap one you&apos;ve done today</span>
+                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1, opacity: 0.85 }}>This week&apos;s goals, tap one you&apos;ve done today</span>
                         <ul style={{ listStyle: 'none', margin: '10px 0 0', padding: 0 }}>
                           {(w.actions ?? []).map((action, ai) => {
                             const checked = checkedSet.has(`${w.week_number}:${ai}:${today}`)
@@ -617,7 +617,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <Eyebrow>Fresh each week</Eyebrow>
           <SecTitle icon={<Sparkles size={26} />}>Superfood Of The Week</SecTitle>
           {superfoodImage && <img src={superfoodImage.image_url} alt={superfoodImage.label} style={{ width: '100%', height: 200, objectFit: 'cover', borderRadius: 12, margin: '20px 0' }} />}
-          <p style={{ fontSize: '0.95rem', lineHeight: 1.6, marginTop: superfoodImage ? 0 : 20 }}>{coachFirst} picks this fresh each week around what&apos;s in season and what&apos;s actually useful for where you are right now — rather than a fixed pick that goes stale.</p>
+          <p style={{ fontSize: '0.95rem', lineHeight: 1.6, marginTop: superfoodImage ? 0 : 20 }}>{coachFirst} picks this fresh each week around what&apos;s in season and what&apos;s actually useful for where you are right now, rather than a fixed pick that goes stale.</p>
           <p style={{ fontSize: '0.85rem', opacity: 0.65, marginTop: 8 }}>You&apos;ll get this alongside your recipes each week, with a short note on why it was chosen for you specifically.</p>
         </div>
       </section>
@@ -651,7 +651,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <SecTitle icon={<ShoppingCart size={26} />}>Your Shopping List</SecTitle>
           <p style={{ fontSize: '0.9rem', opacity: 0.7, marginTop: 16, marginBottom: 20 }}>Pulled straight from the ingredients of your matched recipes. Pick a week below to see it.</p>
           {months.length === 0 ? (
-            <p style={{ fontSize: '0.9rem', opacity: 0.6 }}>Not planned yet — check back once your coach generates your roadmap.</p>
+            <p style={{ fontSize: '0.9rem', opacity: 0.6 }}>Not planned yet, check back once your coach generates your roadmap.</p>
           ) : (
             <>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -754,7 +754,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <Eyebrow>Real numbers, not a guess</Eyebrow>
           <SecTitle icon={<CheckCircle2 size={26} />}>Track Your Progress</SecTitle>
           {progress.totalDaysLogged === 0 ? (
-            <p style={{ fontSize: '0.9rem', opacity: 0.65, marginTop: 16 }}>No check-ins logged yet — tap a goal in your roadmap above each day you complete it, and your progress will show up here.</p>
+            <p style={{ fontSize: '0.9rem', opacity: 0.65, marginTop: 16 }}>No check-ins logged yet, tap a goal in your roadmap above each day you complete it, and your progress will show up here.</p>
           ) : (
             <>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 20, marginBottom: 24 }}>
@@ -762,7 +762,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                   { icon: <Flame size={14} />, value: progress.streak, label: 'day streak' },
                   { icon: <CalendarCheck size={14} />, value: progress.totalDaysLogged, label: 'days logged, total' },
                   { icon: <Target size={14} />, value: `${goalsDone}/${totalActionsInPlan}`, label: 'goals accomplished' },
-                  { icon: <TrendingUp size={14} />, value: progress.bestMonth ? `${progress.bestMonth.pct}%` : '—', label: progress.bestMonth ? `best month · ${progress.bestMonth.monthLabel}` : 'best month' },
+                  { icon: <TrendingUp size={14} />, value: progress.bestMonth ? `${progress.bestMonth.pct}%` : '0%', label: progress.bestMonth ? `best month · ${progress.bestMonth.monthLabel}` : 'best month' },
                 ].map((s, i) => (
                   <div key={i} style={{ flex: '1 1 130px', padding: '12px 14px', borderRadius: 10, border: `1px solid ${PALETTE.line}`, background: 'rgba(255,255,255,0.35)' }}>
                     <span style={{ color: PALETTE.berry }}>{s.icon}</span>
@@ -824,8 +824,8 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <div style={{ marginTop: 20 }}>
             {[
               ['What if I can’t finish everything on my plate exactly as shown?', 'Getting the food groups roughly right matters far more than hitting exact portions.'],
-              ['What if I miss a few days on my habit tracker?', 'Log what actually happened, not what you wish had happened — an honest gap tells your coach more than a perfect-looking week.'],
-              ['Can I eat something that’s not on the lists?', 'Yes — the lists are what to lean on, not a ban on everything else. Ask your coach if unsure.'],
+              ['What if I miss a few days on my habit tracker?', 'Log what actually happened, not what you wish had happened. An honest gap tells your coach more than a perfect-looking week.'],
+              ['Can I eat something that’s not on the lists?', 'Yes, the lists are what to lean on, not a ban on everything else. Ask your coach if unsure.'],
             ].map(([q, a], i) => {
               const isOpen = openFaq === i
               return (

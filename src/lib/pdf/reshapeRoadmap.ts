@@ -41,7 +41,7 @@ export function reshapeRoadmapIntoQuarters(weeklySchedule: WeeklyPlan[] | null |
       return {
         label: q.label,
         monthRange: q.monthRange,
-        macroGoal: 'Not yet planned — will be scoped with your coach in a future cycle.',
+        macroGoal: 'Not yet planned, will be scoped with your coach in a future cycle.',
         microGoals: [],
         successLooksLike: '',
         planned: false,

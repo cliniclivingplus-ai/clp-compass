@@ -72,8 +72,8 @@ export function selectRecipesForPatient(
     result[meal] = scored.slice(0, perMealLimit).map((s) => ({
       recipe: s.recipe,
       why: opts.primaryConcern && concernKeywords.some((k) => s.matched.includes(k))
-        ? `Chosen for your plan — it fits what your coach noted about "${s.matched.find((m) => concernKeywords.includes(m))}."`
-        : `Chosen for your plan — it matches your care team's diet notes on "${s.matched[0]}."`,
+        ? `Chosen for your plan, it fits what your coach noted about "${s.matched.find((m) => concernKeywords.includes(m))}."`
+        : `Chosen for your plan, it matches your care team's diet notes on "${s.matched[0]}."`,
     }))
   }
   return result

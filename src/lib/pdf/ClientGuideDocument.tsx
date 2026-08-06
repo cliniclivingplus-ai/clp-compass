@@ -199,13 +199,13 @@ function founderPages(data: GuideData): ReactElement[] {
       <Text style={shared.title}>{firstName},</Text>
       <Text style={shared.p}>There are eleven people in this building who already know something about you.</Text>
       <Text style={shared.p}>
-        Not just your name — though it&apos;s already underlined twice in your file. Someone has read the
+        Not just your name, though it&apos;s already underlined twice in your file. Someone has read the
         notes from your consult call. Someone already knows which foods actually excite you, the dish
         you&apos;d genuinely look forward to, not just tolerate. And if you&apos;ve already walked through
         our doors before today, one of us probably remembers exactly where you sat.
       </Text>
       <Text style={shared.p}>
-        Your wellness coach said a small, quiet word to herself before she uploaded this document — the
+        Your wellness coach said a small, quiet word to herself before she uploaded this document, the
         kind of thing she does for every plan, whether or not anyone ever finds out. Your doctor has
         already opened a new tab on her computer, right next to your history. It&apos;s empty for now.
         She&apos;s waiting to fill it with everything you&apos;re about to do.
@@ -214,22 +214,22 @@ function founderPages(data: GuideData): ReactElement[] {
         Here&apos;s the part I want you to actually believe: we are genuinely excited for you. Not in the
         polite, clinical, thank-you-for-choosing-us way. In the way you&apos;d be excited watching someone
         you love finally get somewhere they&apos;ve been trying to reach for years. Every small win on the
-        way to {goal} — the first night you sleep straight through, the first craving that doesn&apos;t
-        win, the first lab report that makes your doctor sit up a little straighter — somebody here is
+        way to {goal}, the first night you sleep straight through, the first craving that doesn&apos;t
+        win, the first lab report that makes your doctor sit up a little straighter, somebody here is
         going to see it and quietly punch the air.
       </Text>
       <Text style={shared.p}>None of that is a metaphor. It&apos;s Tuesday-morning-huddle real.</Text>
       <Text style={shared.p}>
         A year before I started Clinic Living Plus, I was the patient across the table, asking a question
-        and getting an answer that didn&apos;t hold up when I looked closer. That gap — between what
-        people are told and what&apos;s actually true about their own body — is the entire reason this
+        and getting an answer that didn&apos;t hold up when I looked closer. That gap, between what
+        people are told and what&apos;s actually true about their own body, is the entire reason this
         place exists.
       </Text>
       <Text style={shared.p}>
         So here&apos;s what I can promise: this document was not templated. A coach spent ninety real
         minutes listening to your actual life before a single recipe in here was chosen. What happens next
-        is mostly on you. What happens around you — the noticing, the small adjustments, the quiet
-        cheering at every step — that part has already begun.
+        is mostly on you. What happens around you, the noticing, the small adjustments, the quiet
+        cheering at every step, has already begun.
       </Text>
       <Text style={shared.p}>Come find us when something in here surprises you. We&apos;d love to hear it.</Text>
 
@@ -300,9 +300,9 @@ function howToUsePages(data: GuideData): ReactElement[] {
   return [
     <PageShell key="howto" eyebrow={"HOW TO USE\nTHIS GUIDE"}>
       <Text style={shared.title}>How to use this guide</Text>
-      <Text style={shared.p}>Read once, keep it handy. Your roadmap and coach intro won&apos;t change — everything else is designed to be flipped back to often.</Text>
-      <Text style={shared.p}>Recipes and weekly targets refresh as your plan progresses. You&apos;ll always get the newest version from your coach — no need to reprint the whole guide.</Text>
-      <Text style={shared.p}>Never guess — ask. If something feels off or unclear, reach your coach before improvising. That&apos;s what they&apos;re there for.</Text>
+      <Text style={shared.p}>Read once, keep it handy. Your roadmap and coach intro won&apos;t change, everything else is designed to be flipped back to often.</Text>
+      <Text style={shared.p}>Recipes and weekly targets refresh as your plan progresses. You&apos;ll always get the newest version from your coach, no need to reprint the whole guide.</Text>
+      <Text style={shared.p}>Never guess, ask. If something feels off or unclear, reach your coach before improvising. That&apos;s what they&apos;re there for.</Text>
 
       <Text style={shared.section}>Your why</Text>
       <View style={shared.box}>
@@ -354,7 +354,7 @@ function roadmapPages(data: GuideData): ReactElement[] {
   const monthBlock = (m: ReturnType<typeof reshapeRoadmapIntoMonths>[number]) => {
     const keyMetric = biomarkers.length > 0 ? biomarkers[(m.monthNumber - 1) % biomarkers.length] : 'Rechecked with your coach at the end of this month.'
     const last = m.weeks[m.weeks.length - 1]
-    const macroGoal = last?.focus_theme || 'Not yet planned — will be scoped with your coach in a future cycle.'
+    const macroGoal = last?.focus_theme || 'Not yet planned, will be scoped with your coach in a future cycle.'
     const microGoals = m.weeks.flatMap((w) => w.actions ?? []).slice(0, 4)
     const successLooksLike = last?.milestone || 'Rechecked with your coach at the end of this month.'
     const weeksWithMenu = m.weeks.filter((w) => w.food_menu?.trim())
@@ -427,7 +427,7 @@ function lifestylePages(data: GuideData): ReactElement[] {
   return [
     <PageShell key="lifestyle1" eyebrow={"LIFESTYLE\nGUIDELINES"}>
       <Text style={shared.title}>Lifestyle guidelines</Text>
-      <Text style={shared.dek}>Built from your consult — each change below is tied to something specific in your case, not general advice.</Text>
+      <Text style={shared.dek}>Built from your consult, each change below is tied to something specific in your case, not general advice.</Text>
       {heroImage && <Image src={heroImage.image_url} style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 8, marginBottom: 14 }} />}
       {bullets.slice(0, 2).map((bullet, i) => (
         <View key={i} style={{ marginBottom: 14 }}>
@@ -512,10 +512,10 @@ function recipesPages(data: GuideData): ReactElement[] {
     return [
       <PageShell key="recipes" eyebrow={"THIS WEEK'S\nRECIPES"}>
         <Text style={shared.title}>This week&apos;s recipes</Text>
-        <Text style={shared.dek}>Nothing in the recipe bank is tagged to match {firstName}&apos;s specific concern or diet notes yet — rather than print something generic, {coachName.split(' ')[0]} will hand you a recipe card chosen fresh for this week instead.</Text>
+        <Text style={shared.dek}>Nothing in the recipe bank is tagged to match {firstName}&apos;s specific concern or diet notes yet, rather than print something generic, {coachName.split(' ')[0]} will hand you a recipe card chosen fresh for this week instead.</Text>
         <View style={shared.box}>
           <Text style={shared.boxLabel}>BUILD YOUR PLATE FROM</Text>
-          <Text style={shared.p}>Use the food lists on pages 10–12 as your building blocks — any combination that hits the plate ratios shown works.</Text>
+          <Text style={shared.p}>Use the food lists on pages 10-12 as your building blocks, any combination that hits the plate ratios shown works.</Text>
         </View>
       </PageShell>,
     ]
@@ -550,7 +550,7 @@ function recipesPages(data: GuideData): ReactElement[] {
   return [
     <PageShell key="recipes" eyebrow={"THIS WEEK'S\nRECIPES"}>
       <Text style={shared.title}>This week&apos;s recipes</Text>
-      <Text style={shared.dek}>Picked specifically for {firstName}&apos;s plan — matched to your concern and diet notes, not a generic list.</Text>
+      <Text style={shared.dek}>Picked specifically for {firstName}&apos;s plan, matched to your concern and diet notes, not a generic list.</Text>
       {allMatches.map(recipeCard)}
     </PageShell>,
   ]
@@ -562,7 +562,7 @@ function superfoodPages(data: GuideData): ReactElement[] {
   return [
     <PageShell key="superfood" eyebrow={"SUPERFOOD OF\nTHE WEEK"}>
       <Text style={shared.title}>Superfood of the week</Text>
-      <Text style={shared.dek}>{coachName.split(' ')[0]} picks this fresh each week around what&apos;s in season and what&apos;s actually useful for where you are right now — rather than print one fixed pick here that goes stale the week after.</Text>
+      <Text style={shared.dek}>{coachName.split(' ')[0]} picks this fresh each week around what&apos;s in season and what&apos;s actually useful for where you are right now, rather than print one fixed pick here that goes stale the week after.</Text>
       {image && <Image src={image.image_url} style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 8, marginBottom: 14 }} />}
       <View style={shared.box}>
         <Text style={shared.boxLabel}>YOU&apos;LL GET THIS</Text>
@@ -585,7 +585,7 @@ function groceryPages(data: GuideData): ReactElement[] {
   return [
     <PageShell key="grocery1" eyebrow={"GROCERY\nLIST"}>
       <Text style={shared.title}>Your shopping list</Text>
-      <Text style={shared.dek}>Pulled straight from your nutrition guidelines on pages 10–12 — buy what you need, skip what&apos;s already in the kitchen.</Text>
+      <Text style={shared.dek}>Pulled straight from your nutrition guidelines on pages 10-12, buy what you need, skip what&apos;s already in the kitchen.</Text>
       <View style={grid.cols3}>
         {GROCERY_CATEGORIES.slice(0, 3).map((c) => (
           <View key={c.head} style={grid.col}>
@@ -627,7 +627,7 @@ function supplementsPages(data: GuideData): ReactElement[] {
   return [
     <PageShell key="supplements1" eyebrow="SUPPLEMENTS">
       <Text style={shared.title}>Your supplement plan</Text>
-      <Text style={shared.dek}>Prescribed by your care team after reviewing your case — not a general recommendation. Don&apos;t start, stop, or change a dose without confirming with {data.coach?.full_name?.split(' ')[0] || 'your coach'} first.</Text>
+      <Text style={shared.dek}>Prescribed by your care team after reviewing your case, not a general recommendation. Don&apos;t start, stop, or change a dose without confirming with {data.coach?.full_name?.split(' ')[0] || 'your coach'} first.</Text>
       {parsed.supplements.length > 0 ? (
         // Full bullets, not a Name/Dose/Why table — the AI's phrasing varies
         // run to run (dose sometimes inline, sometimes parenthetical, and a
@@ -635,16 +635,16 @@ function supplementsPages(data: GuideData): ReactElement[] {
         // which is a real safety risk in a supplement instruction).
         parsed.supplements.map((s, i) => <Text key={i} style={shared.p}>· {s}</Text>)
       ) : (
-        <View style={shared.box}><Text style={shared.p}>No supplements on file yet — your coach will add these once your plan calls for them.</Text></View>
+        <View style={shared.box}><Text style={shared.p}>No supplements on file yet, your coach will add these once your plan calls for them.</Text></View>
       )}
       <View style={shared.box}>
         <Text style={shared.boxLabel}>BEFORE YOU START</Text>
-        <Text style={shared.p}>Take with food unless told otherwise. If you notice any new symptom after starting something on this list, message your coach the same day — don&apos;t wait for your next session.</Text>
+        <Text style={shared.p}>Take with food unless told otherwise. If you notice any new symptom after starting something on this list, message your coach the same day, don&apos;t wait for your next session.</Text>
       </View>
     </PageShell>,
     <PageShell key="supplements2" eyebrow={"SUPPLEMENTS ·\nCONTINUED"}>
       <Text style={shared.section}>What gets rechecked</Text>
-      <Text style={shared.dek}>This plan is reviewed alongside your labs — supplements get added, adjusted, or dropped as your markers move.</Text>
+      <Text style={shared.dek}>This plan is reviewed alongside your labs, supplements get added, adjusted, or dropped as your markers move.</Text>
       {parsed.biomarkers.length > 0 ? (
         parsed.biomarkers.map((b, i) => <Text key={i} style={shared.p}>· {b}</Text>)
       ) : (
@@ -672,23 +672,23 @@ function trackProgressPages(data: GuideData): ReactElement[] {
   return [
     <PageShell key="track1" eyebrow={"TRACK YOUR\nPROGRESS"}>
       <Text style={shared.title}>The big picture, quarter by quarter</Text>
-      <Text style={shared.dek}>Your weekly habit tracking catches the day-to-day. This page catches the shift underneath it — filled in with your coach at the end of each quarter.</Text>
+      <Text style={shared.dek}>Your weekly habit tracking catches the day-to-day. This page catches the shift underneath it, filled in with your coach at the end of each quarter.</Text>
       <View style={tableStyles.table}>
         <View style={tableStyles.headRow}>
           <Text style={{ ...tableStyles.th, flex: 1.4 }}>METRIC</Text>
           {quarters.map((q) => <Text key={q.label} style={{ ...tableStyles.th, flex: 1, textAlign: 'center' }}>{q.label}</Text>)}
         </View>
-        {['Weight / measurements', 'Energy (1–10)', 'Sleep quality (1–10)', 'Primary symptom', 'Key lab marker'].map((metric) => (
+        {['Weight / measurements', 'Energy (1-10)', 'Sleep quality (1-10)', 'Primary symptom', 'Key lab marker'].map((metric) => (
           <View key={metric} style={tableStyles.row}>
             <Text style={{ ...tableStyles.td, flex: 1.4, fontFamily: font.bodyBold }}>{metric}</Text>
-            {quarters.map((q) => <Text key={q.label} style={{ ...tableStyles.td, flex: 1, textAlign: 'center', color: colors.muted }}>—</Text>)}
+            {quarters.map((q) => <Text key={q.label} style={{ ...tableStyles.td, flex: 1, textAlign: 'center', color: colors.muted }}></Text>)}
           </View>
         ))}
       </View>
     </PageShell>,
     <PageShell key="track2" eyebrow={"TRACK YOUR PROGRESS ·\nCONTINUED"}>
       <Text style={shared.section}>Monthly check-in</Text>
-      <Text style={shared.p}>Three questions, two minutes, once a month — this is what your coach reads before your next call.</Text>
+      <Text style={shared.p}>Three questions, two minutes, once a month, this is what your coach reads before your next call.</Text>
       {['What felt easiest this month?', 'What did you keep skipping, and why?', 'One thing you noticed in your body that you didn’t expect.'].map((q, i) => (
         <View key={i} style={{ marginBottom: 18 }}>
           <Text style={{ ...shared.p, fontFamily: font.bodyBold, marginBottom: 6 }}>{q}</Text>
@@ -708,7 +708,7 @@ function whenToReachPages(data: GuideData): ReactElement[] {
       <Text style={shared.dek}>Here&apos;s how to know what&apos;s urgent, and where to send it.</Text>
       {parsed.redFlags.length > 0 && (
         <View style={{ ...shared.box, marginBottom: 16 }}>
-          <Text style={shared.boxLabel}>SAME DAY — SPECIFIC TO YOUR PLAN</Text>
+          <Text style={shared.boxLabel}>SAME DAY · SPECIFIC TO YOUR PLAN</Text>
           {parsed.redFlags.map((f, i) => <Text key={i} style={shared.p}>· {f}</Text>)}
         </View>
       )}
@@ -719,18 +719,18 @@ function whenToReachPages(data: GuideData): ReactElement[] {
         </View>
         <View style={tableStyles.row}>
           <Text style={{ ...tableStyles.td, flex: 1, fontFamily: font.bodyBold }}>Within a day</Text>
-          <Text style={{ ...tableStyles.td, flex: 2.5 }}>A question about a supplement, food, or your plan — message {coachFirst} directly.</Text>
+          <Text style={{ ...tableStyles.td, flex: 2.5 }}>A question about a supplement, food, or your plan. Message {coachFirst} directly.</Text>
         </View>
         <View style={tableStyles.row}>
           <Text style={{ ...tableStyles.td, flex: 1, fontFamily: font.bodyBold }}>Next session</Text>
-          <Text style={{ ...tableStyles.td, flex: 2.5 }}>General progress, motivation, or &quot;how am I doing&quot; — save it for your next call.</Text>
+          <Text style={{ ...tableStyles.td, flex: 2.5 }}>General progress, motivation, or &quot;how am I doing&quot;. Save it for your next call.</Text>
         </View>
       </View>
     </PageShell>,
     <PageShell key="reach2" eyebrow={"WHEN TO REACH US ·\nCONTINUED"}>
       <View style={shared.box}>
         <Text style={shared.boxLabel}>IF THIS IS AN EMERGENCY</Text>
-        <Text style={shared.p}>This guide and your coach are not equipped for emergencies. Chest pain, difficulty breathing, fainting, or anything that feels life-threatening — go to your nearest emergency room or call your local emergency number first. Tell us after, once you&apos;re safe.</Text>
+        <Text style={shared.p}>This guide and your coach are not equipped for emergencies. Chest pain, difficulty breathing, fainting, or anything that feels life-threatening: go to your nearest emergency room or call your local emergency number first. Tell us after, once you&apos;re safe.</Text>
       </View>
       <Text style={shared.section}>Every other way to reach us</Text>
       <View style={tableStyles.table}>
@@ -744,7 +744,7 @@ function whenToReachPages(data: GuideData): ReactElement[] {
         </View>
         <View style={tableStyles.row}>
           <Text style={{ ...tableStyles.td, flex: 1.2, fontFamily: font.bodyBold }}>+91 72931 11120</Text>
-          <Text style={{ ...tableStyles.td, flex: 2 }}>Booking, billing, urgent — during clinic hours.</Text>
+          <Text style={{ ...tableStyles.td, flex: 2 }}>Booking, billing, urgent matters, during clinic hours.</Text>
         </View>
       </View>
     </PageShell>,
@@ -753,9 +753,9 @@ function whenToReachPages(data: GuideData): ReactElement[] {
 
 function faqPages(): ReactElement[] {
   const items: [string, string][] = [
-    ['What if I can’t finish everything on my plate exactly as shown?', 'The percentages on pages 10–12 are a guide, not a rulebook. Getting the food groups roughly right matters far more than hitting exact portions.'],
-    ['What if I miss a few days on my habit tracker?', 'Log what actually happened, not what you wish had happened — an honest gap tells your coach more than a perfect-looking week.'],
-    ['Can I eat something that’s not on the lists in this guide?', 'Yes — the lists are what to lean on, not a ban on everything else. Ask your coach if you’re unsure about something specific.'],
+    ['What if I can’t finish everything on my plate exactly as shown?', 'The percentages on pages 10-12 are a guide, not a rulebook. Getting the food groups roughly right matters far more than hitting exact portions.'],
+    ['What if I miss a few days on my habit tracker?', 'Log what actually happened, not what you wish had happened. An honest gap tells your coach more than a perfect-looking week.'],
+    ['Can I eat something that’s not on the lists in this guide?', 'Yes, the lists are what to lean on, not a ban on everything else. Ask your coach if you’re unsure about something specific.'],
     ['What happens at the end of each quarter?', 'Your key metrics get rechecked, your supplement plan is reviewed, and your roadmap for the next quarter is set together with your coach.'],
   ]
   return [
@@ -820,7 +820,7 @@ export function ClientGuideDocument({
   }
 
   return (
-    <Document title={`${data.patient.full_name} — CLP Wellness Guide`}>
+    <Document title={`${data.patient.full_name} - CLP Wellness Guide`}>
       {/* PAGE 1 — COVER */}
       <PageShell eyebrow="">
         <View style={cover.wrap}>

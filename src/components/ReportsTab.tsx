@@ -65,7 +65,7 @@ function SupplementReview({ report, patientId, onUpdated }: { report: Report; pa
       setRows(j.supplements ?? [])
       if (confirm) setEditing(false)
     } catch {
-      setError('Network error — try again.')
+      setError('Network error, try again.')
     } finally { setSaving(false) }
   }
 
@@ -77,7 +77,7 @@ function SupplementReview({ report, patientId, onUpdated }: { report: Report; pa
         </div>
         {report.supplements_confirmed && !editing ? (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: C.greenDeep, background: C.greenSoft, borderRadius: 20, padding: '3px 9px' }}>
-            <CheckCircle2 size={11} /> Confirmed — on patient dashboard
+            <CheckCircle2 size={11} /> Confirmed, on patient dashboard
           </span>
         ) : (
           <span style={{ fontSize: 11, fontWeight: 600, color: C.amber, background: C.amberSoft, borderRadius: 20, padding: '3px 9px' }}>
@@ -135,9 +135,9 @@ function SupplementReview({ report, patientId, onUpdated }: { report: Report; pa
                   <Fragment key={i}>
                     <tr style={{ borderTop: `1px solid ${C.line}` }}>
                       <td style={{ padding: '7px 8px 7px 0', fontWeight: 700, color: C.ink }}>{s.name}</td>
-                      <td style={{ padding: '7px 8px 7px 0', color: C.ink }}>{s.dose || '—'}</td>
-                      <td style={{ padding: '7px 8px 7px 0', color: C.ink }}>{s.timing || '—'}</td>
-                      <td style={{ padding: '7px 0', color: C.ink }}>{s.duration || '—'}</td>
+                      <td style={{ padding: '7px 8px 7px 0', color: C.ink }}>{s.dose}</td>
+                      <td style={{ padding: '7px 8px 7px 0', color: C.ink }}>{s.timing}</td>
+                      <td style={{ padding: '7px 0', color: C.ink }}>{s.duration}</td>
                     </tr>
                     {s.notes && (
                       <tr>
@@ -211,7 +211,7 @@ function ReportRow({ report, patientId, onDeleted, onUpdated }: { report: Report
             <p style={{ fontSize: 12.5, color: C.danger, margin: 0 }}>{report.error_message}</p>
           )}
           {report.status === 'processing' && (
-            <p style={{ fontSize: 12.5, color: C.muted, margin: 0 }}>Extracting and summarizing — this can take up to a minute.</p>
+            <p style={{ fontSize: 12.5, color: C.muted, margin: 0 }}>Extracting and summarizing, this can take up to a minute.</p>
           )}
           {report.status === 'ready' && <SupplementReview report={report} patientId={patientId} onUpdated={onUpdated} />}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
@@ -257,7 +257,7 @@ export default function ReportsTab({ patientId }: { patientId: string }) {
       if (!r.ok) { setUploadError(j.error || 'Upload failed'); if (j.report) setReports((prev) => [j.report, ...prev]); return }
       setReports((prev) => [j, ...prev])
     } catch {
-      setUploadError('Network error — try again.')
+      setUploadError('Network error, try again.')
     } finally { setUploading(false) }
   }
 

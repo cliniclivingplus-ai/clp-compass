@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
     const factsRes = await groq.chat.completions.create({
       model: 'llama-3.1-8b-instant',
       messages: [
-        { role: 'system', content: 'Extract specific clinical facts from the consultation. Return only a bullet list of specific, measurable, named facts. No generalisations. Only what is explicitly stated.' },
+        { role: 'system', content: 'Extract specific clinical facts from the consultation. Return only a bullet list of specific, measurable, named facts. No generalisations. Only what is explicitly stated. Never use an em dash (—); use a comma, period, or "and" instead.' },
         { role: 'user', content: `Patient: ${patient.full_name}, ${patient.gender ?? ''}, Concern: ${patient.primary_concern}
 
 Gemini meeting notes:
@@ -194,7 +194,8 @@ STRICT RULES:
 - Use exact details: their real food, their real symptoms, their real schedule
 - FORBIDDEN words: "may", "might", "could", "possibly", "often", "many people", "typically", "generally"
 - If you write something not in the facts list, delete it
-- Tone: warm, direct, like a doctor who knows them personally` },
+- Tone: warm, direct, like a doctor who knows them personally
+- Never use an em dash (—). Use a comma, period, or "and" instead` },
         { role: 'user', content: `PATIENT FACTS (use ONLY these):
 ${patientFacts}
 
@@ -218,7 +219,7 @@ Use "you" throughout. Reference their real details. No generic health advice.` }
     const lifestyleRes = await groq.chat.completions.create({
       model: 'llama-3.1-8b-instant',
       messages: [
-        { role: 'system', content: 'Clinical nutritionist. Write 4 lifestyle prescriptions directly to the patient. Each must reference a specific fact from their consultation. No generic advice.' },
+        { role: 'system', content: 'Clinical nutritionist. Write 4 lifestyle prescriptions directly to the patient. Each must reference a specific fact from their consultation. No generic advice. Never use an em dash (—); use a comma, period, or "and" instead.' },
         { role: 'user', content: `PATIENT FACTS:
 ${patientFacts}
 
@@ -244,7 +245,7 @@ Return only 4 bullet points. No intro, no outro.` }
     const clinicalRes = await groq.chat.completions.create({
       model: 'llama-3.1-8b-instant',
       messages: [
-        { role: 'system', content: 'Clinical nutritionist writing notes. Use only patient facts and KB. Be specific and clinical.' },
+        { role: 'system', content: 'Clinical nutritionist writing notes. Use only patient facts and KB. Be specific and clinical. Never use an em dash (—); use a comma, period, or "and" instead.' },
         { role: 'user', content: `PATIENT FACTS:
 ${patientFacts}
 
@@ -300,7 +301,7 @@ Each starts with •. Specific to this patient. No generic statements.` }
       const res = await groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [
-          { role: 'system', content: 'Return only a valid JSON array. No markdown. Write cause and actions directly to the patient using their specific facts. Never write generic health advice.' },
+          { role: 'system', content: 'Return only a valid JSON array. No markdown. Write cause and actions directly to the patient using their specific facts. Never write generic health advice. Never use an em dash (—) anywhere in the text; use a comma, period, or "and" instead.' },
           { role: 'user', content: `PATIENT FACTS (the only source of truth — use these specific details):
 ${patientFacts}
 
@@ -320,13 +321,13 @@ ${weeksInChunk >= 2 ? `- Example: with ${weeksInChunk} items starting at ${start
 
 RULES FOR CAUSE:
 - Explain the BIOCHEMICAL MECHANISM — what is actually happening in the body at a cellular/hormonal level
-- E.g. "Your elevated cortisol from 10-12hr workdays is suppressing progesterone production, which explains your irregular cycle. Cortisol and progesterone compete for the same receptor sites — when cortisol dominates, progesterone cannot bind, disrupting your luteal phase."
+- E.g. "Your elevated cortisol from 10-12hr workdays is suppressing progesterone production, which explains your irregular cycle. Cortisol and progesterone compete for the same receptor sites, so when cortisol dominates, progesterone cannot bind, disrupting your luteal phase."
 - Be scientific. Use medical terms but explain them. Reference their actual symptoms.
 - Never say "may", "might", "could", "typically"
 
 RULES FOR ACTIONS:
 - Each action must be SPECIFIC and MEASURABLE: include exact quantities, timings, durations
-- E.g. "Eat 2 tablespoons of ground flaxseed in warm water at 7am daily — lignans in flaxseed bind excess oestrogen and support progesterone balance"
+- E.g. "Eat 2 tablespoons of ground flaxseed in warm water at 7am daily. Lignans in flaxseed bind excess oestrogen and support progesterone balance"
 - Include the WHY in one sentence after the action
 - Reference their actual food/schedule from Q&A and patient facts
 - Actions should NOT suggest "consult a doctor" or "consult a nutritionist" — she is already at CLP
@@ -336,11 +337,11 @@ RULES FOR ACTIONS:
   "focus_theme": "Specific clinical theme",
   "cause": "3 sentences explaining the exact biochemical mechanism happening in their body. Scientific, specific to their condition and facts. Direct to patient.",
   "actions": [
-    "Specific measurable action with exact quantity/timing — why it works in one sentence",
-    "Second specific action with quantity and timing — scientific rationale",
+    "Specific measurable action with exact quantity/timing, why it works in one sentence",
+    "Second specific action with quantity and timing, scientific rationale",
     "Third specific action tied to their actual daily schedule"
   ],
-  "milestone": "By end of this week, if you follow all actions: [1-2 specific, measurable changes the patient will notice — e.g. bloating reduces, energy improves by afternoon, bowel movement becomes regular]. Be specific and realistic."
+  "milestone": "By end of this week, if you follow all actions: [1-2 specific, measurable changes the patient will notice, e.g. bloating reduces, energy improves by afternoon, bowel movement becomes regular]. Be specific and realistic."
 }]
 
 Exactly ${weeksInChunk} items, week_number ${startWeek} through ${endWeek}. Each week must address a different physiological system or mechanism.` }

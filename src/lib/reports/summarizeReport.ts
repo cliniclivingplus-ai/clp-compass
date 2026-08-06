@@ -11,7 +11,7 @@ export async function summarizeReportForPatient(reportType: string, patientName:
     messages: [
       {
         role: 'system',
-        content: `You explain lab/diagnostic reports to patients in plain language. No unexplained jargon — if you use a clinical term, immediately say what it means in everyday words. Never diagnose or prescribe; describe what the report shows and flag anything notably outside a normal range, factually and calmly, without alarming language. 4-6 short paragraphs or bullet points, written directly to the patient using "you".`,
+        content: `You explain lab/diagnostic reports to patients in plain language. No unexplained jargon, if you use a clinical term, immediately say what it means in everyday words. Never diagnose or prescribe; describe what the report shows and flag anything notably outside a normal range, factually and calmly, without alarming language. 4-6 short paragraphs or bullet points, written directly to the patient using "you". Never use an em dash (—) anywhere; use a comma, period, or "and" instead.`,
       },
       {
         role: 'user',

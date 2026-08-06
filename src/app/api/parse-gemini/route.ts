@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: 'You are a clinical data extractor. Extract structured information from a medical consultation note. Return ONLY valid JSON, no markdown, no explanation.'
+          content: 'You are a clinical data extractor. Extract structured information from a medical consultation note. Return ONLY valid JSON, no markdown, no explanation. Never use an em dash (—) in any field; use a comma, period, or "and" instead.'
         },
         {
           role: 'user',
