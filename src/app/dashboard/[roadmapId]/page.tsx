@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase'
 import { buildGuideData } from '@/lib/pdf/buildGuideData'
 import DashboardClient from './DashboardClient'
+import AlmanacTemplate from './AlmanacTemplate'
 
 export const revalidate = 0
 export const dynamic = 'force-dynamic'
@@ -40,5 +41,8 @@ export default async function PatientDashboardPage({ params }: { params: Promise
 
   const guideData = buildGuideData(roadmap, imageBank ?? [], recipes ?? [], supplementReport?.supplements ?? [])
 
+  if (guideData.template === 'almanac') {
+    return <AlmanacTemplate roadmapId={roadmapId} data={guideData} initialCheckins={checkins ?? []} />
+  }
   return <DashboardClient roadmapId={roadmapId} data={guideData} initialCheckins={checkins ?? []} />
 }

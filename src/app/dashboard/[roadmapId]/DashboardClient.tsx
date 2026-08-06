@@ -5,6 +5,7 @@ import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoad
 import { parseNutritionistGuidelines } from '@/lib/pdf/parseNutritionistGuidelines'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
 import { selectRecipesForPatient, type RecipeMatch } from '@/lib/pdf/matchRecipes'
+import { curatedSlotIds as sharedCuratedSlotIds, getSlotRecipes as sharedGetSlotRecipes } from '@/lib/pdf/weekRecipes'
 import type { GuideData, DayMealSlot } from '@/lib/pdf/ClientGuideDocument'
 import { splitRecipeLines } from '@/lib/recipeText'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
@@ -128,6 +129,7 @@ const CARE_ICON_MAP: Record<string, LucideIcon> = Object.fromEntries(CARE_ICON_O
 const TOC_ITEMS: { label: string; id: string }[] = [
   { label: 'Founder’s note', id: 'founder' },
   { label: 'Meet your coach', id: 'coach' },
+  { label: 'Your care team', id: 'careteam' },
   { label: 'How to use this guide', id: 'howto' },
   { label: 'Your why', id: 'why' },
   { label: 'Your roadmap', id: 'roadmap' },
@@ -811,8 +813,11 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [editingWeek, setEditingWeek] = useState<number | null>(null)
   const [recipeSearch, setRecipeSearch] = useState<Partial<Record<DayMealSlot, string>>>({})
   const [theme, setTheme] = useState(data.theme && PALETTES[data.theme] ? data.theme : 'classic')
+  const [template, setTemplate] = useState(data.template === 'almanac' ? 'almanac' : 'classic')
   const [careServices, setCareServices] = useState(data.careServices || [])
   const [openCareService, setOpenCareService] = useState<number | null>(null)
+  const [nextAppointment, setNextAppointment] = useState(data.nextAppointment || { date: '', time: '', mode: '' })
+  const [careTeam, setCareTeam] = useState(data.careTeam || [])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -836,7 +841,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             lifestyle_guidelines: lifestyleText,
-            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes, weekly_manual_recipes: weeklyManualRecipes, theme, care_services: careServices },
+            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes, weekly_manual_recipes: weeklyManualRecipes, theme, template, care_services: careServices, next_appointment: nextAppointment, care_team: careTeam },
             weekly_schedule: editWeeks.map((w) => ({ ...w, actions: (w.actions || []).map((a) => a.trim()).filter(Boolean) })),
           }),
         }),
@@ -990,37 +995,14 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     return { heroImage: hero, mealMatches: capped, weekMealMatches: selection, mealImages: images, superfoodImage: superfood, monthImages: months }
   }, [data])
 
-  // The coach's curated recipe-id list for a slot in a specific week, if
-  // they've set one — a per-week override wins, then the old plan-wide
-  // `manualRecipes` (from before per-week curation existed, kept so older
-  // roadmaps don't lose a coach's picks), then the top auto-detected matches.
-  // Also guards against the old pre-multi-select data shape (a single recipe
-  // id string per slot) still present on roadmaps saved before that change.
-  const curatedSlotIds = (slot: DayMealSlot, weekNumber: number): string[] => {
-    const weekRaw = weeklyManualRecipes[weekNumber]?.[slot]
-    if (Array.isArray(weekRaw) && weekRaw.length) return weekRaw
-    const legacyRaw = manualRecipes[slot]
-    if (Array.isArray(legacyRaw) && legacyRaw.length) return legacyRaw
-    return weekMealMatches[slot].map((m) => m.recipe.id)
-  }
+  // Shared with every template (src/lib/pdf/weekRecipes.ts) so Classic and
+  // Almanac can never silently disagree about a patient's real curated
+  // recipes for a given week+slot.
+  const curatedSlotIds = (slot: DayMealSlot, weekNumber: number): string[] =>
+    sharedCuratedSlotIds(slot, weekNumber, weeklyManualRecipes, manualRecipes, weekMealMatches)
 
-  // Each of the 4 weekly recipe slots (Breakfast/Lunch/Dinner/Snacks) shows a
-  // curated bunch of recipes for a given week, not just one: the coach's
-  // explicit picks for that week+slot if curated, otherwise the top
-  // auto-detected matches (tag/keyword matched against this patient's
-  // concern & diet notes) — a coach's curated list always wins.
-  const getSlotRecipes = (weekNumber: number) => DAY_MEAL_SLOTS.map((slot) => {
-    const chosenIds = curatedSlotIds(slot, weekNumber)
-    const matches = chosenIds
-      .map((id): RecipeMatch | null => {
-        const auto = weekMealMatches[slot].find((m) => m.recipe.id === id)
-        if (auto) return auto
-        const recipe = data.recipeBank.find((r) => r.id === id)
-        return recipe ? { recipe, why: `Picked by ${coachFirst} for your plan.` } : null
-      })
-      .filter((m): m is RecipeMatch => !!m)
-    return { slot, matches }
-  })
+  const getSlotRecipes = (weekNumber: number) =>
+    sharedGetSlotRecipes(weekNumber, DAY_MEAL_SLOTS, weeklyManualRecipes, manualRecipes, weekMealMatches, data.recipeBank, `Picked by ${coachFirst} for your plan.`)
 
   const allWeekSlotRecipes = months.flatMap((m) => m.weeks.flatMap((w) => getSlotRecipes(w.week_number)))
 
@@ -1458,6 +1440,20 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   </button>
                 ))}
               </div>
+              <div style={{ ...editLabelStyle, marginTop: 14 }}>Template</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {[{ id: 'classic', label: 'Classic' }, { id: 'almanac', label: 'Almanac' }].map((t) => (
+                  <button key={t.id} onClick={() => setTemplate(t.id)}
+                    style={{
+                      padding: '6px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                      border: template === t.id ? `2px solid ${C.accent}` : `1px solid ${C.rule}`,
+                      background: template === t.id ? C.accentSoft : '#fff', color: C.ink,
+                    }}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>Changes only what the patient sees — you always edit here in Classic, regardless of which one is picked.</div>
             </div>
           ) : (
             <div style={{ fontSize: 13.5, color: C.inkSoft, marginTop: 6, maxWidth: 480, marginLeft: 'auto', marginRight: 'auto' }}>{goalLabel}</div>
@@ -1517,6 +1513,98 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   </>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Your care team — other providers beyond the primary coach
+              (doctor, therapist, naturopath, etc.), each with their own
+              intro and appointment. Coach-entered, empty by default; the
+              whole section stays out of the DOM for a patient when there's
+              nothing in it, same as the coach block above. */}
+          {(careTeam.length > 0 || editable) && (
+            <div id="careteam" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
+              <div style={sectionTitleStyle}><Stethoscope size={18} color={C.accent} /> Your care team</div>
+              {editable ? (
+                <>
+                  <p style={{ ...bulletStyle, color: C.muted, marginBottom: 14 }}>
+                    Add anyone else on this patient&apos;s care team — a doctor, therapist, naturopath, or other specialist — with a short intro and their appointment.
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 14 }}>
+                    {careTeam.map((member, i) => (
+                      <div key={i} style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', background: C.bg }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 8 }}>
+                          <div>
+                            <div style={editLabelStyle}>Name</div>
+                            <input style={editInputStyle} value={member.name} placeholder="e.g. Dr. Anita Rao" onChange={(e) => {
+                              const next = [...careTeam]; next[i] = { ...member, name: e.target.value }; setCareTeam(next)
+                            }} />
+                          </div>
+                          <div>
+                            <div style={editLabelStyle}>Role</div>
+                            <input style={editInputStyle} value={member.role} placeholder="e.g. Doctor, Therapist, Naturopath" onChange={(e) => {
+                              const next = [...careTeam]; next[i] = { ...member, role: e.target.value }; setCareTeam(next)
+                            }} />
+                          </div>
+                        </div>
+                        <div style={{ marginBottom: 8 }}>
+                          <div style={editLabelStyle}>Intro</div>
+                          <textarea style={{ ...editInputStyle, resize: 'vertical' as const }} rows={2} value={member.intro}
+                            placeholder="A short intro the patient will see, e.g. their specialty and how they fit into this plan."
+                            onChange={(e) => { const next = [...careTeam]; next[i] = { ...member, intro: e.target.value }; setCareTeam(next) }} />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 8 }}>
+                          <div>
+                            <div style={editLabelStyle}>Appointment date</div>
+                            <input style={editInputStyle} type="date" value={member.date}
+                              onChange={(e) => { const next = [...careTeam]; next[i] = { ...member, date: e.target.value }; setCareTeam(next) }} />
+                          </div>
+                          <div>
+                            <div style={editLabelStyle}>Time</div>
+                            <input style={editInputStyle} type="time" value={member.time}
+                              onChange={(e) => { const next = [...careTeam]; next[i] = { ...member, time: e.target.value }; setCareTeam(next) }} />
+                          </div>
+                          <div>
+                            <div style={editLabelStyle}>Mode</div>
+                            <select style={editInputStyle} value={member.mode}
+                              onChange={(e) => { const next = [...careTeam]; next[i] = { ...member, mode: e.target.value }; setCareTeam(next) }}>
+                              <option value="">— Select —</option>
+                              <option value="In-person">In-person</option>
+                              <option value="Virtual">Virtual</option>
+                              <option value="In-person / Virtual">In-person / Virtual</option>
+                            </select>
+                          </div>
+                        </div>
+                        <button onClick={() => setCareTeam(careTeam.filter((_, idx) => idx !== i))}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: '#b4462f', fontSize: 12, fontWeight: 700, padding: 0 }}>
+                          <Trash2 size={13} /> Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={() => setCareTeam([...careTeam, { name: '', role: '', intro: '', date: '', time: '', mode: '' }])}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.rule}`, background: C.paper, color: C.ink, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+                    <Plus size={14} /> Add team member
+                  </button>
+                </>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {careTeam.map((member, i) => (
+                    <div key={i} style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', background: C.bg }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{member.name}</div>
+                      {member.role && <div style={{ fontSize: 12, color: C.muted, marginBottom: member.intro ? 6 : 0 }}>{member.role}</div>}
+                      {member.intro && <p style={{ ...bulletStyle, marginBottom: member.date ? 8 : 0 }}>{renderMarkdownBold(member.intro)}</p>}
+                      {member.date && (
+                        <div style={{ fontSize: 12.5, color: C.accent, fontWeight: 700 }}>
+                          <CalendarCheck size={13} style={{ verticalAlign: -2, marginRight: 5 }} />
+                          {new Date(member.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                          {member.time && ` · ${new Date(`2000-01-01T${member.time}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`}
+                          {member.mode && ` · ${member.mode}`}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -1953,14 +2041,52 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           {/* When to reach us */}
           <div id="reach" style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
             <div style={sectionTitleStyle}><Phone size={18} color={C.accent} /> When to reach us</div>
-            {parsedGuidelines.redFlags.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>Contact {coachFirst} the same day if you notice</div>
-                {parsedGuidelines.redFlags.map((f, i) => <p key={i} style={bulletStyle}>• {renderMarkdownBold(f)}</p>)}
+            {editable ? (
+              <div style={{ background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+                <div style={{ ...weekBoxLabel, marginBottom: 10 }}>Next appointment</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
+                  <div>
+                    <div style={editLabelStyle}>Date</div>
+                    <input style={editInputStyle} type="date" value={nextAppointment.date}
+                      onChange={(e) => setNextAppointment({ ...nextAppointment, date: e.target.value })} />
+                  </div>
+                  <div>
+                    <div style={editLabelStyle}>Time</div>
+                    <input style={editInputStyle} type="time" value={nextAppointment.time}
+                      onChange={(e) => setNextAppointment({ ...nextAppointment, time: e.target.value })} />
+                  </div>
+                  <div>
+                    <div style={editLabelStyle}>Mode</div>
+                    <select style={editInputStyle} value={nextAppointment.mode}
+                      onChange={(e) => setNextAppointment({ ...nextAppointment, mode: e.target.value })}>
+                      <option value="">— Select —</option>
+                      <option value="In-person">In-person</option>
+                      <option value="Virtual">Virtual</option>
+                      <option value="In-person / Virtual">In-person / Virtual</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            ) : nextAppointment.date ? (
+              <div style={{ background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+                <div style={{ ...weekBoxLabel, marginBottom: 6 }}><CalendarCheck size={13} color={C.accent} style={{ verticalAlign: -2, marginRight: 5 }} />Next appointment</div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink, marginBottom: 10 }}>
+                  {new Date(nextAppointment.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  {nextAppointment.time && ` · ${new Date(`2000-01-01T${nextAppointment.time}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`}
+                  {nextAppointment.mode && ` · ${nextAppointment.mode}`}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>Until your next appointment</div>
+                <p style={{ ...bulletStyle, marginBottom: 6 }}>Please continue following your personalized plan as recommended. Keep track of any changes, questions, or concerns so they can be discussed during your next visit.</p>
+                <p style={{ ...bulletStyle, marginBottom: 0 }}>If you experience any unexpected or worsening symptoms, have difficulty following your plan, or are unsure about any recommendations, please contact our team before your scheduled appointment.</p>
+              </div>
+            ) : (
+              <div style={{ background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+                <p style={{ ...bulletStyle, marginBottom: 4 }}>Continue following your personalized care plan as recommended.</p>
+                <p style={{ ...bulletStyle, marginBottom: 4 }}>Keep track of your progress and any questions or concerns.</p>
+                <p style={{ ...bulletStyle, marginBottom: 4 }}>In a medical emergency, seek immediate emergency medical care.</p>
+                <p style={{ ...bulletStyle, marginBottom: 0 }}>Contact our team if you need guidance or notice any unexpected changes in your health.</p>
               </div>
             )}
-            <p style={bulletStyle}>Have a question about a supplement, food, or anything in your plan? Message {coachFirst} directly{data.coach?.email ? ` at ${data.coach.email}` : ''} — that&apos;s exactly what they&apos;re there for.</p>
-            <p style={bulletStyle}>In a medical emergency (chest pain, trouble breathing, fainting) go straight to your nearest emergency room — this dashboard and your coach aren&apos;t equipped to handle emergencies.</p>
           </div>
 
           {/* FAQ */}

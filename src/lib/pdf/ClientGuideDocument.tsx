@@ -48,8 +48,11 @@ export type GuideData = {
   manualRecipes: Partial<Record<DayMealSlot, string[]>> // legacy plan-wide curated recipe-id list per slot, from before per-week curation existed — kept as a fallback so old roadmaps don't lose a coach's picks
   weeklyManualRecipes: Record<number, Partial<Record<DayMealSlot, string[]>>> // coach's curated recipe-id list per slot, per week_number; when set for a week, replaces the auto-detected picks for that week+slot entirely
   theme: string // coach-picked color palette id for the live dashboard & downloaded plan — falls back to 'classic' if unset or unrecognized
+  template: string // coach-picked page template for the patient-facing dashboard — 'classic' (default) or 'almanac'; editing always happens in the classic editor regardless of which one is picked
   confirmedSupplements: { name: string; dose: string; timing: string; duration: string; notes: string }[] // from a patient_reports row a coach explicitly reviewed & confirmed — never shown pre-confirmation
   careServices: { name: string; icon: string; sessions: string; description?: string }[] // "What's included in your care" tiles — coach-entered, empty by default rather than generic filler copy
+  nextAppointment: { date: string; time: string; mode: string } // shown in "When to reach us" — coach-entered, blank fields just don't render rather than showing a placeholder
+  careTeam: { name: string; role: string; intro: string; date: string; time: string; mode: string }[] // "Your care team" — other providers (doctor, therapist, naturopath, etc.) beyond the primary coach, each with their own intro + appointment. Empty by default.
 }
 
 const cover = StyleSheet.create({

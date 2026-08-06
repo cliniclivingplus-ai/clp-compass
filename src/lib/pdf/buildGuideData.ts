@@ -12,7 +12,7 @@ export type RoadmapRow = {
   kb_sources: GuideData['roadmap']['kb_sources'] | null
   weekly_schedule: GuideData['roadmap']['weekly_schedule'] | null
   duration_months: number
-  guide_overrides: { goal_label?: string; why_reflection?: string; coach_quote?: string; manual_recipes?: Partial<Record<DayMealSlot, string[]>>; weekly_manual_recipes?: Record<number, Partial<Record<DayMealSlot, string[]>>>; theme?: string; care_services?: GuideData['careServices'] } | null
+  guide_overrides: { goal_label?: string; why_reflection?: string; coach_quote?: string; manual_recipes?: Partial<Record<DayMealSlot, string[]>>; weekly_manual_recipes?: Record<number, Partial<Record<DayMealSlot, string[]>>>; theme?: string; template?: string; care_services?: GuideData['careServices']; next_appointment?: GuideData['nextAppointment']; care_team?: GuideData['careTeam'] } | null
   patients: (Omit<GuideData['patient'], never> & { nutritionists: Coach | null }) | null
   sessions: { case_summary: { goal?: string; coach_quote?: string } | null } | null
 }
@@ -50,7 +50,10 @@ export function buildGuideData(
     manualRecipes: overrides.manual_recipes ?? {},
     weeklyManualRecipes: overrides.weekly_manual_recipes ?? {},
     theme: overrides.theme || 'classic',
+    template: overrides.template || 'classic',
     confirmedSupplements,
     careServices: overrides.care_services ?? [],
+    nextAppointment: overrides.next_appointment ?? { date: '', time: '', mode: '' },
+    careTeam: overrides.care_team ?? [],
   }
 }
