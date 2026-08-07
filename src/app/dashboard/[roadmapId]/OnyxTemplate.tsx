@@ -189,6 +189,7 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
   const [openMonth, setOpenMonth] = useState<number | null>(null)
   const [openWeek, setOpenWeek] = useState<number | null>(null)
   const [openRecipeId, setOpenRecipeId] = useState<string | null>(null)
+  const [tocOpen, setTocOpen] = useState(false)
 
   const today = todayISO()
   const progress = useMemo(() => {
@@ -278,6 +279,9 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
     clone.querySelectorAll('[data-meal-trigger]').forEach((el) => el.setAttribute('onclick', `clpSetMealTab('${el.getAttribute('data-meal-trigger')}')`))
     clone.querySelectorAll('[data-faq-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleFaq('${el.getAttribute('data-faq-trigger')}')`))
     clone.querySelectorAll('[data-care-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleCare('${el.getAttribute('data-care-trigger')}')`))
+    clone.querySelectorAll('[data-toc-trigger]').forEach((el) => el.setAttribute('onclick', 'clpToggleToc()'))
+    clone.querySelectorAll('[data-toc-link]').forEach((el) => el.setAttribute('onclick', 'clpCloseToc()'))
+    clone.querySelectorAll('[data-toc-panel]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
     clone.querySelectorAll('[data-goal-toggle]').forEach((el) => {
       const key = (el.getAttribute('data-goal-toggle') || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
       el.setAttribute('onclick', `toggleGoalExport('${key}', this)`)
@@ -331,11 +335,18 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
             <div style={{ width: 28, height: 28, borderRadius: '50%', border: `1px solid ${ONYX.accent}`, color: ONYX.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: SERIF, fontWeight: 600, fontSize: 11 }}>CLP</div>
             <span style={{ fontSize: 12, fontWeight: 500, color: ONYX.inkSoft, letterSpacing: '0.03em' }}>CLINIC LIVING PLUS</span>
           </div>
-          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-            <div style={{ display: 'flex', gap: 14, overflowX: 'auto' }}>
-              {TOC_ITEMS.filter((item) => !isHidden(item.id)).map((item) => (
-                <a key={item.id} href={`#${item.id}`} style={{ fontSize: 11, fontWeight: 500, color: ONYX.muted, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>{item.label}</a>
-              ))}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <button data-toc-trigger onClick={() => setTocOpen((v) => !v)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 2, border: `1px solid ${ONYX.border}`, background: 'transparent', color: ONYX.inkSoft, fontSize: 11, fontWeight: 500, cursor: 'pointer' }}>
+                Jump to section <ChevronDown size={12} style={{ transform: tocOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+              </button>
+              <div data-toc-panel style={{ display: tocOpen ? 'grid' : 'none', position: 'absolute', top: '100%', right: 0, marginTop: 6, gridTemplateColumns: 'repeat(2, minmax(150px, 1fr))', gap: '2px 10px', background: ONYX.bg, border: `1px solid ${ONYX.border}`, borderRadius: 2, padding: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.4)', maxHeight: '70vh', overflowY: 'auto', zIndex: 31 }}>
+                {TOC_ITEMS.filter((item) => !isHidden(item.id)).map((item) => (
+                  <a key={item.id} data-toc-link href={`#${item.id}`} onClick={() => setTocOpen(false)}
+                    style={{ fontSize: 12, fontWeight: 500, color: ONYX.muted, textDecoration: 'none', padding: '7px 9px', borderRadius: 2, whiteSpace: 'nowrap' }}>{item.label}</a>
+                ))}
+              </div>
             </div>
             <button onClick={downloadDashboard} data-no-export
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, padding: '7px 14px', borderRadius: 2, border: `1px solid ${ONYX.accent}`, background: 'transparent', color: ONYX.accent, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>

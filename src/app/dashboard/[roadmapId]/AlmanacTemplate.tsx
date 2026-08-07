@@ -85,6 +85,24 @@ const PALETTE = {
 
 const FONT_LINK = 'https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;1,9..144,500&family=Work+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap'
 
+const TOC_ITEMS: { label: string; id: string }[] = [
+  { label: 'Founder’s note', id: 'founder' },
+  { label: 'Meet your coach', id: 'coach' },
+  { label: 'Your care team', id: 'careteam' },
+  { label: 'How to use this guide', id: 'howto' },
+  { label: 'Your why', id: 'howto' },
+  { label: 'Your roadmap', id: 'roadmap' },
+  { label: 'Lifestyle guidelines', id: 'lifestyle' },
+  { label: 'Nutrition guidelines', id: 'nutrition' },
+  { label: 'Superfood of the week', id: 'superfood' },
+  { label: 'Grocery list', id: 'grocery' },
+  { label: 'Supplements', id: 'supplements' },
+  { label: 'Services', id: 'services' },
+  { label: 'Track your progress', id: 'track' },
+  { label: 'When to reach us', id: 'reach' },
+  { label: 'FAQ', id: 'faq' },
+]
+
 function Eyebrow({ children, dark }: { children: React.ReactNode; dark?: boolean }) {
   return (
     <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', opacity: 0.65, color: dark ? PALETTE.cream : PALETTE.ink, display: 'block', marginBottom: 12 }}>
@@ -173,6 +191,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
   // Always read-only — a coach's hide/show choice (made in the Classic
   // editor, the only place editing happens) is just a saved fact here.
   const hiddenStyle = (id: string): CSSProperties => ((data.hiddenSections ?? []).includes(id) ? { display: 'none' } : {})
+  const isHidden = (id: string) => (data.hiddenSections ?? []).includes(id)
   const parsed = useMemo(() => parseNutritionistGuidelines(data.roadmap.nutritionist_guidelines), [data.roadmap.nutritionist_guidelines])
   const lifestyleBullets = useMemo(() => parseBullets(data.roadmap.lifestyle_guidelines), [data.roadmap.lifestyle_guidelines])
 
@@ -199,6 +218,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
   const [openMonth, setOpenMonth] = useState<number | null>(null)
   const [openWeek, setOpenWeek] = useState<number | null>(null)
   const [openRecipeId, setOpenRecipeId] = useState<string | null>(null)
+  const [tocOpen, setTocOpen] = useState(false)
 
   // Same real check-in-derived stats "Track your progress" shows in
   // Classic (src/app/dashboard/[roadmapId]/DashboardClient.tsx) — never a
@@ -306,6 +326,9 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
     clone.querySelectorAll('[data-meal-trigger]').forEach((el) => el.setAttribute('onclick', `clpSetMealTab('${el.getAttribute('data-meal-trigger')}')`))
     clone.querySelectorAll('[data-faq-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleFaq('${el.getAttribute('data-faq-trigger')}')`))
     clone.querySelectorAll('[data-care-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleCare('${el.getAttribute('data-care-trigger')}')`))
+    clone.querySelectorAll('[data-toc-trigger]').forEach((el) => el.setAttribute('onclick', 'clpToggleToc()'))
+    clone.querySelectorAll('[data-toc-link]').forEach((el) => el.setAttribute('onclick', 'clpCloseToc()'))
+    clone.querySelectorAll('[data-toc-panel]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
     clone.querySelectorAll('[data-goal-toggle]').forEach((el) => {
       const key = (el.getAttribute('data-goal-toggle') || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
       el.setAttribute('onclick', `toggleGoalExport('${key}', this)`)
@@ -353,6 +376,26 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
       <link href={FONT_LINK} rel="stylesheet" />
       <a href={`/roadmaps/${roadmapId}/edit`} data-no-export style={{ display: 'none' }} />
 
+      {/* Jump-to-section — a single dropdown rather than a row of links, so
+          it never overflows or shows a scrollbar regardless of section
+          count. Restored offline via data-toc-trigger/data-toc-panel. */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 30, background: 'rgba(247,239,224,0.92)', backdropFilter: 'blur(6px)', borderBottom: `1px solid ${PALETTE.line}`, padding: '10px 1.5rem' }}>
+        <div style={{ maxWidth: 920, margin: '0 auto', position: 'relative' }}>
+          <button data-toc-trigger onClick={() => setTocOpen((v) => !v)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, fontWeight: 600, color: PALETTE.ink, background: PALETTE.gold1, border: `1px solid ${PALETTE.line}`, borderRadius: 20, padding: '7px 14px', cursor: 'pointer' }}>
+            Jump to section <ChevronDown size={13} style={{ transform: tocOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+          </button>
+          <div data-toc-panel style={{ display: tocOpen ? 'grid' : 'none', position: 'absolute', top: '100%', left: 0, marginTop: 6, gridTemplateColumns: 'repeat(2, minmax(160px, 1fr))', gap: '2px 12px', background: PALETTE.paper1, border: `1px solid ${PALETTE.line}`, borderRadius: 12, padding: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.14)', maxHeight: '70vh', overflowY: 'auto', zIndex: 31 }}>
+            {TOC_ITEMS.filter((item) => !isHidden(item.id)).map((item, i) => (
+              <a key={`${item.id}-${i}`} data-toc-link href={`#${item.id}`} onClick={() => setTocOpen(false)}
+                style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, fontWeight: 600, color: PALETTE.ink, opacity: 0.75, textDecoration: 'none', padding: '8px 9px', borderRadius: 8, whiteSpace: 'nowrap' }}>
+                {item.label}
+              </a>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Hero */}
       <section style={{ padding: '5rem 1.5rem 3rem', textAlign: 'center' }}>
         <div style={{ maxWidth: 920, margin: '0 auto' }}>
@@ -377,7 +420,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
       </section>
 
       {/* Founder's note — same letter as Classic, personalized with name/goal */}
-      <section style={{ background: PALETTE.paper2, padding: '4rem 1.5rem', ...hiddenStyle('founder') }}>
+      <section id="founder" style={{ background: PALETTE.paper2, padding: '4rem 1.5rem', ...hiddenStyle('founder') }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>A note from the founder</Eyebrow>
           <SecTitle icon={<HeartPulse size={26} />}>Founder&apos;s Note</SecTitle>
@@ -399,7 +442,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
 
       {/* Coach */}
       {data.coach && (
-        <section style={{ background: PALETTE.paper2, borderTop: `1px solid ${PALETTE.line}`, borderBottom: `1px solid ${PALETTE.line}`, padding: '3rem 1.5rem', ...hiddenStyle('coach') }}>
+        <section id="coach" style={{ background: PALETTE.paper2, borderTop: `1px solid ${PALETTE.line}`, borderBottom: `1px solid ${PALETTE.line}`, padding: '3rem 1.5rem', ...hiddenStyle('coach') }}>
           <div style={{ maxWidth: 920, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
             <div style={{ width: 64, height: 64, borderRadius: 32, flexShrink: 0, background: data.coach.photo_url ? `url(${data.coach.photo_url}) center/cover` : PALETTE.gold1, border: `1px solid ${PALETTE.line}` }} />
             <div>
@@ -414,7 +457,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
 
       {/* Care team */}
       {data.careTeam.length > 0 && (
-        <section style={{ background: PALETTE.paper3, padding: '4rem 1.5rem', ...hiddenStyle('careteam') }}>
+        <section id="careteam" style={{ background: PALETTE.paper3, padding: '4rem 1.5rem', ...hiddenStyle('careteam') }}>
           <div style={{ maxWidth: 920, margin: '0 auto' }}>
             <Eyebrow>Beyond your coach</Eyebrow>
             <SecTitle icon={<HeartPulse size={26} />}>Your care team</SecTitle>
@@ -438,7 +481,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
       )}
 
       {/* How to use this guide + Your why — same real walkthrough + reflection as Classic */}
-      <section style={{ background: PALETTE.gold1, padding: '4rem 1.5rem', ...hiddenStyle('howto') }}>
+      <section id="howto" style={{ background: PALETTE.gold1, padding: '4rem 1.5rem', ...hiddenStyle('howto') }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>Getting oriented</Eyebrow>
           <SecTitle icon={<HelpCircle size={26} />}>How To Use This Guide</SecTitle>
@@ -470,7 +513,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
 
       {/* Lifestyle guidelines */}
       {lifestyleBullets.length > 0 && (
-        <section style={{ background: PALETTE.gold1, padding: '4rem 1.5rem', ...hiddenStyle('lifestyle') }}>
+        <section id="lifestyle" style={{ background: PALETTE.gold1, padding: '4rem 1.5rem', ...hiddenStyle('lifestyle') }}>
           <div style={{ maxWidth: 920, margin: '0 auto' }}>
             <Eyebrow>Every day</Eyebrow>
             <SecTitle icon={<HeartPulse size={26} />}>Lifestyle Guidelines</SecTitle>
@@ -494,7 +537,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
 
       {/* Your power plates — same static reference plate + top-matched
           recipes per meal as Classic. */}
-      <section style={{ background: PALETTE.paper3, padding: '4rem 1.5rem', ...hiddenStyle('nutrition') }}>
+      <section id="nutrition" style={{ background: PALETTE.paper3, padding: '4rem 1.5rem', ...hiddenStyle('nutrition') }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>Building your plate</Eyebrow>
           <SecTitle icon={<Utensils size={26} />}>Your Power Plates</SecTitle>
@@ -556,7 +599,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           Everything expands inline, in place, as part of the page — no
           popup dialogs. */}
       {months.length > 0 && (
-        <section style={{ background: PALETTE.dusk1, padding: '4rem 1.5rem', ...hiddenStyle('roadmap') }}>
+        <section id="roadmap" style={{ background: PALETTE.dusk1, padding: '4rem 1.5rem', ...hiddenStyle('roadmap') }}>
           <div style={{ maxWidth: 920, margin: '0 auto' }}>
             <Eyebrow dark>Month by month</Eyebrow>
             <SecTitle dark icon={<MapPin size={26} color={PALETTE.cream} />}>Your Roadmap</SecTitle>
@@ -691,7 +734,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
 
       {/* Superfood of the week — same generic-but-real copy as Classic (no
           per-week superfood data exists to show specifics beyond this). */}
-      <section style={{ background: PALETTE.gold2, padding: '4rem 1.5rem', ...hiddenStyle('superfood') }}>
+      <section id="superfood" style={{ background: PALETTE.gold2, padding: '4rem 1.5rem', ...hiddenStyle('superfood') }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>Fresh each week</Eyebrow>
           <SecTitle icon={<Sparkles size={26} />}>Superfood Of The Week</SecTitle>
@@ -703,7 +746,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
 
       {/* Supplements */}
       {data.confirmedSupplements.length > 0 && (
-        <section style={{ background: PALETTE.dusk2, padding: '4rem 1.5rem', ...hiddenStyle('supplements') }}>
+        <section id="supplements" style={{ background: PALETTE.dusk2, padding: '4rem 1.5rem', ...hiddenStyle('supplements') }}>
           <div style={{ maxWidth: 920, margin: '0 auto' }}>
             <Eyebrow dark>Confirmed by {coachFirst}</Eyebrow>
             <SecTitle dark icon={<Pill size={26} color={PALETTE.cream} />}>Your Supplement Plan</SecTitle>
@@ -724,7 +767,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
       {/* Shopping list — same recipe-derived, categorized ingredients as
           Classic (src/lib/groceryList.ts), broken out per week; expands
           inline instead of a popup. */}
-      <section style={{ background: PALETTE.paper2, padding: '4rem 1.5rem', ...hiddenStyle('grocery') }}>
+      <section id="grocery" style={{ background: PALETTE.paper2, padding: '4rem 1.5rem', ...hiddenStyle('grocery') }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>What to buy</Eyebrow>
           <SecTitle icon={<ShoppingCart size={26} />}>Your Shopping List</SecTitle>
@@ -797,7 +840,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
       {/* What's included in your care — same coach-entered tiles as
           Classic; expands inline instead of a popup. */}
       {data.careServices.length > 0 && (
-        <section style={{ background: PALETTE.paper3, padding: '4rem 1.5rem', ...hiddenStyle('services') }}>
+        <section id="services" style={{ background: PALETTE.paper3, padding: '4rem 1.5rem', ...hiddenStyle('services') }}>
           <div style={{ maxWidth: 720, margin: '0 auto' }}>
             <Eyebrow>Your plan</Eyebrow>
             <SecTitle icon={<Star size={26} />}>What&apos;s Included In Your Care</SecTitle>
@@ -828,7 +871,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
       )}
 
       {/* Track your progress — same real check-in-derived stats as Classic */}
-      <section style={{ background: PALETTE.gold1, padding: '4rem 1.5rem', ...hiddenStyle('track') }}>
+      <section id="track" style={{ background: PALETTE.gold1, padding: '4rem 1.5rem', ...hiddenStyle('track') }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>Real numbers, not a guess</Eyebrow>
           <SecTitle icon={<CheckCircle2 size={26} />}>Track Your Progress</SecTitle>
@@ -863,7 +906,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
       </section>
 
       {/* When to reach us / next appointment */}
-      <section style={{ background: PALETTE.night1, padding: '4rem 1.5rem', ...hiddenStyle('reach') }}>
+      <section id="reach" style={{ background: PALETTE.night1, padding: '4rem 1.5rem', ...hiddenStyle('reach') }}>
         <div style={{ maxWidth: 920, margin: '0 auto' }}>
           <Eyebrow dark>Reach us</Eyebrow>
           <SecTitle dark icon={<Phone size={26} color={PALETTE.cream} />}>When To Reach Us</SecTitle>
@@ -893,7 +936,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
       </section>
 
       {/* FAQ */}
-      <section style={{ background: PALETTE.night2, padding: '4rem 1.5rem 6rem', ...hiddenStyle('faq') }}>
+      <section id="faq" style={{ background: PALETTE.night2, padding: '4rem 1.5rem 6rem', ...hiddenStyle('faq') }}>
         <div style={{ maxWidth: 920, margin: '0 auto' }}>
           <Eyebrow dark>Questions we hear most</Eyebrow>
           <SecTitle dark icon={<HelpCircle size={26} color={PALETTE.cream} />}>FAQ</SecTitle>

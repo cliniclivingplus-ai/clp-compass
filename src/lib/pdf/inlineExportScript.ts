@@ -17,6 +17,7 @@
 //   data-meal-trigger / data-meal-body           (value: meal type)
 //   data-faq-trigger / data-faq-body             (value: index)
 //   data-care-trigger / data-care-body           (value: index)
+//   data-toc-trigger / data-toc-panel / data-toc-link   (jump-to-section dropdown)
 //   data-goal-toggle="week:action" data-goal-icon-done / data-goal-icon-undone / data-goal-text
 //   data-grocery-item="week:category:item" data-grocery-icon-done / data-grocery-icon-undone / data-grocery-item-text
 //   data-stat-pct="monthNumber" data-stat-sub="monthNumber"   (Track your progress per-month numbers)
@@ -56,6 +57,17 @@ function clpShiftISO(dateISO, delta){
 }
 function clpTodayISO(){ return new Date().toISOString().slice(0, 10); }
 function clpSetText(sel, val){ var el = document.querySelector(sel); if (el) el.textContent = val; }
+
+// ── table-of-contents dropdown ──
+function clpToggleToc(){
+  var panel = document.querySelector('[data-toc-panel]');
+  if (!panel) return;
+  panel.style.display = (panel.style.display === 'grid') ? 'none' : 'grid';
+}
+function clpCloseToc(){
+  var panel = document.querySelector('[data-toc-panel]');
+  if (panel) panel.style.display = 'none';
+}
 
 // ── single-open-at-a-time groups (month/week/recipe/grocery-month/grocery-week) ──
 function clpSetPillActive(el, active){
