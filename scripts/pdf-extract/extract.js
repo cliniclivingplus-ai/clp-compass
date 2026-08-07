@@ -35,7 +35,6 @@
 
 const fs = require('fs')
 const path = require('path')
-const os = require('os')
 const { execFileSync, spawnSync } = require('child_process')
 const crypto = require('crypto')
 
@@ -44,26 +43,36 @@ const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js')
 const Groq = require('groq-sdk')
 const { parseRecipesHeuristic } = require('./heuristic-parser.js')
 
-// ── isolated worker mode: pulls hero images for ONE pdf, writes them to a
-// temp dir, exits. See extractHeroImagesByPageIsolated() below for why this
-// runs as a completely separate process instead of an in-process function
-// call — some PDFs have a corrupt embedded image that crashes pdfjs-dist's
-// native image decoder with a hard process-level crash (no JS exception at
-// all, so no try/catch in the main process can ever catch it). Running it
-// here means that crash only takes down this one throwaway child process;
-// the parent just sees a bad exit code and moves on to the next file.
+// A marker line the parent greps for in the child's stdout — everything
+// after it on the same line is the JSON payload. Using a marker (rather
+// than "stdout is the whole payload") means any stray console output from
+// a dependency doesn't corrupt the parse.
+const WORKER_RESULT_MARKER = '__CLP_IMAGE_RESULT__'
+
+// ── isolated worker mode: pulls hero images for ONE pdf, prints them as
+// base64 JSON on stdout, exits. See extractHeroImagesByPageIsolated() below
+// for why this runs as a completely separate process instead of an
+// in-process function call — some PDFs have a corrupt embedded image that
+// crashes pdfjs-dist's native image decoder with a hard process-level
+// crash (no JS exception at all, so no try/catch in the main process can
+// ever catch it). Running it here means that crash only takes down this
+// one throwaway child process; the parent just sees a bad exit code and
+// moves on to the next file. Results travel over stdout rather than a temp
+// file on disk — a first version wrote PNGs to a temp dir and read them
+// back, which worked in every isolated test here but reproducibly failed
+// on every single file once run for real for ~55 files in a row (most
+// likely antivirus real-time scanning starting to interfere with rapid
+// create-then-immediately-read temp file activity); a single in-memory
+// stdout round trip has no such surface.
 if (process.argv[2] === '--extract-images-worker') {
   const workerPdfPath = process.argv[3]
-  const workerOutDir = process.argv[4]
   ;(async () => {
     const heroByPage = await extractHeroImagesByPage(workerPdfPath)
     const manifest = []
     for (const [pageNum, img] of heroByPage) {
-      const fileName = `page-${pageNum}.png`
-      fs.writeFileSync(path.join(workerOutDir, fileName), img.buf)
-      manifest.push({ pageNum, width: img.width, height: img.height, hash: img.hash, fileName })
+      manifest.push({ pageNum, width: img.width, height: img.height, hash: img.hash, data: img.buf.toString('base64') })
     }
-    fs.writeFileSync(path.join(workerOutDir, 'manifest.json'), JSON.stringify(manifest))
+    process.stdout.write(WORKER_RESULT_MARKER + JSON.stringify(manifest) + '\n')
   })().then(() => process.exit(0)).catch((e) => { console.error(e.message); process.exit(1) })
   return undefined // unreachable in practice (process.exit above), keeps lint happy about top-level code after this block
 }
@@ -253,27 +262,30 @@ async function extractHeroImagesByPage(pdfPath) {
 // code, logs it, and moves on to the next file instead of losing the rest
 // of a 100+ file batch.
 function extractHeroImagesByPageIsolated(pdfPath) {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clp-pdf-images-'))
-  try {
-    const result = spawnSync(process.execPath, [__filename, '--extract-images-worker', pdfPath, tmpDir], {
-      timeout: 120000, // a hung/corrupt PDF shouldn't stall the whole batch forever
-      maxBuffer: 1024 * 1024 * 16,
-    })
-    if (result.error || result.status !== 0 || result.signal) {
-      const why = result.signal ? `crashed (signal ${result.signal})` : result.error ? result.error.message : `exited with code ${result.status}`
-      throw new Error(`image extraction ${why}`)
-    }
-    const manifestPath = path.join(tmpDir, 'manifest.json')
-    if (!fs.existsSync(manifestPath)) throw new Error('image extraction produced no output')
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-    const heroByPage = new Map()
-    for (const entry of manifest) {
-      heroByPage.set(entry.pageNum, { width: entry.width, height: entry.height, hash: entry.hash, buf: fs.readFileSync(path.join(tmpDir, entry.fileName)) })
-    }
-    return heroByPage
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true })
+  const result = spawnSync(process.execPath, [__filename, '--extract-images-worker', pdfPath], {
+    timeout: 120000, // a hung/corrupt PDF shouldn't stall the whole batch forever
+    maxBuffer: 1024 * 1024 * 64, // images travel as base64 over stdout now, so this needs real headroom
+  })
+  if (result.error || result.signal) {
+    const why = result.signal ? `crashed (signal ${result.signal})` : result.error.message
+    throw new Error(`image extraction ${why}`)
   }
+  const stdout = (result.stdout || '').toString('utf8')
+  const markerIdx = stdout.indexOf(WORKER_RESULT_MARKER)
+  if (markerIdx === -1) {
+    // Genuinely diagnostic: show whatever the child actually printed so a
+    // real failure (as opposed to "no images on this page", which prints a
+    // valid empty-array payload, not nothing) is never a silent mystery.
+    const stderr = (result.stderr || '').toString('utf8').trim()
+    const seen = [stdout.trim(), stderr].filter(Boolean).join(' | stderr: ')
+    throw new Error(`image extraction produced no output (exit ${result.status}${seen ? `, saw: ${seen.slice(0, 300)}` : ''})`)
+  }
+  const manifest = JSON.parse(stdout.slice(markerIdx + WORKER_RESULT_MARKER.length))
+  const heroByPage = new Map()
+  for (const entry of manifest) {
+    heroByPage.set(entry.pageNum, { width: entry.width, height: entry.height, hash: entry.hash, buf: Buffer.from(entry.data, 'base64') })
+  }
+  return heroByPage
 }
 
 // ── Groq recipe extraction, one page at a time ────────────────────────────
