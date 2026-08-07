@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
-import { ArrowLeft, Plus, Pencil, FileText, StickyNote, LayoutDashboard, Calendar, ChevronRight, Microscope } from 'lucide-react'
+import { ArrowLeft, Plus, Pencil, FileText, StickyNote, LayoutDashboard, Calendar, ChevronRight, Microscope, Trash2, X } from 'lucide-react'
 import ReportsTab from '@/components/ReportsTab'
 
 // ── Design tokens ────────────────────────────────────────────────────
@@ -82,6 +82,7 @@ export default function PatientPage() {
   const [roadmaps, setRoadmaps] = useState<Roadmap[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<TabKey>('sessions')
+  const [showDelete, setShowDelete] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -174,6 +175,12 @@ export default function PatientPage() {
             >
               <Pencil size={13} /> Edit
             </Link>
+            <button
+              onClick={() => setShowDelete(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 9, border: '1px solid #F3D6D6', background: C.card, color: '#B3261E', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              <Trash2 size={13} /> Delete
+            </button>
             <Link
               href={`/patients/${patientId}/sessions/new`}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: C.green, color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none', boxShadow: '0 2px 6px rgba(83,138,34,0.25)' }}
@@ -234,6 +241,76 @@ export default function PatientPage() {
         {tab === 'reports' && <ReportsTab patientId={patientId} />}
         {tab === 'notes' && <NotesTab sessions={sessions} />}
         {tab === 'dashboard' && <DashboardTab roadmaps={roadmaps} />}
+      </div>
+
+      {showDelete && (
+        <DeleteConfirmModal
+          patient={patient}
+          counts={counts}
+          onClose={() => setShowDelete(false)}
+          onDeleted={() => router.push('/patients')}
+        />
+      )}
+    </div>
+  )
+}
+
+function DeleteConfirmModal({ patient, counts, onClose, onDeleted }: { patient: Patient; counts: { sessions: number; roadmaps: number }; onClose: () => void; onDeleted: () => void }) {
+  const [confirmText, setConfirmText] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState('')
+  const canDelete = confirmText.trim() === patient.full_name.trim()
+
+  async function handleDelete() {
+    if (!canDelete) return
+    setDeleting(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/patients/${patient.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const j = await res.json().catch(() => null)
+        setError(j?.error || 'Delete failed — try again.')
+        setDeleting(false)
+        return
+      }
+      onDeleted()
+    } catch {
+      setError('Network error — try again.')
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(26,36,23,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 100 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, borderRadius: 16, padding: '24px 26px', maxWidth: 440, width: '100%', position: 'relative' }}>
+        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', color: C.muted }}><X size={18} /></button>
+        <div style={{ width: 44, height: 44, borderRadius: 12, background: '#FBEAEA', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+          <Trash2 size={20} color="#B3261E" />
+        </div>
+        <h2 style={{ fontSize: 17, fontWeight: 700, color: C.ink, margin: '0 0 6px' }}>Delete {patient.full_name}?</h2>
+        <p style={{ fontSize: 13.5, color: C.muted, lineHeight: 1.55, margin: '0 0 16px' }}>
+          This permanently deletes this patient and everything tied to them — {counts.sessions} session{counts.sessions === 1 ? '' : 's'}, {counts.roadmaps} roadmap{counts.roadmaps === 1 ? '' : 's'}{' '}(including any shared dashboard links), reports, and check-in history. This can&apos;t be undone.
+        </p>
+        <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+          Type &ldquo;{patient.full_name}&rdquo; to confirm
+        </label>
+        <input
+          value={confirmText}
+          onChange={(e) => setConfirmText(e.target.value)}
+          placeholder={patient.full_name}
+          style={{ width: '100%', padding: '9px 11px', borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 13.5, color: C.ink, boxSizing: 'border-box', marginBottom: 16 }}
+        />
+        {error && <p style={{ fontSize: 12.5, color: '#B3261E', margin: '0 0 12px' }}>{error}</p>}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 16px', borderRadius: 9, border: `1px solid ${C.line}`, background: C.card, color: C.muted, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+          <button
+            onClick={handleDelete}
+            disabled={!canDelete || deleting}
+            style={{ padding: '9px 16px', borderRadius: 9, border: 'none', background: canDelete ? '#B3261E' : '#E8B4B0', color: '#fff', fontSize: 13, fontWeight: 700, cursor: canDelete && !deleting ? 'pointer' : 'not-allowed' }}
+          >
+            {deleting ? 'Deleting…' : 'Delete permanently'}
+          </button>
+        </div>
       </div>
     </div>
   )
