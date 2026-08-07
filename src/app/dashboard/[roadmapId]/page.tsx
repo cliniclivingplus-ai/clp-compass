@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { buildGuideData } from '@/lib/pdf/buildGuideData'
 import DashboardClient from './DashboardClient'
 import AlmanacTemplate from './AlmanacTemplate'
+import PulseTemplate from './PulseTemplate'
 
 export const revalidate = 0
 export const dynamic = 'force-dynamic'
@@ -43,6 +44,9 @@ export default async function PatientDashboardPage({ params }: { params: Promise
 
   if (guideData.template === 'almanac') {
     return <AlmanacTemplate roadmapId={roadmapId} data={guideData} initialCheckins={checkins ?? []} />
+  }
+  if (guideData.template === 'pulse') {
+    return <PulseTemplate roadmapId={roadmapId} data={guideData} initialCheckins={checkins ?? []} />
   }
   return <DashboardClient roadmapId={roadmapId} data={guideData} initialCheckins={checkins ?? []} />
 }
