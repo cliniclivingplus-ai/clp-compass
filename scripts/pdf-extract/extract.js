@@ -35,13 +35,38 @@
 
 const fs = require('fs')
 const path = require('path')
-const { execFileSync } = require('child_process')
+const os = require('os')
+const { execFileSync, spawnSync } = require('child_process')
 const crypto = require('crypto')
 
 const { createCanvas, ImageData } = require('canvas')
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js')
 const Groq = require('groq-sdk')
 const { parseRecipesHeuristic } = require('./heuristic-parser.js')
+
+// ── isolated worker mode: pulls hero images for ONE pdf, writes them to a
+// temp dir, exits. See extractHeroImagesByPageIsolated() below for why this
+// runs as a completely separate process instead of an in-process function
+// call — some PDFs have a corrupt embedded image that crashes pdfjs-dist's
+// native image decoder with a hard process-level crash (no JS exception at
+// all, so no try/catch in the main process can ever catch it). Running it
+// here means that crash only takes down this one throwaway child process;
+// the parent just sees a bad exit code and moves on to the next file.
+if (process.argv[2] === '--extract-images-worker') {
+  const workerPdfPath = process.argv[3]
+  const workerOutDir = process.argv[4]
+  ;(async () => {
+    const heroByPage = await extractHeroImagesByPage(workerPdfPath)
+    const manifest = []
+    for (const [pageNum, img] of heroByPage) {
+      const fileName = `page-${pageNum}.png`
+      fs.writeFileSync(path.join(workerOutDir, fileName), img.buf)
+      manifest.push({ pageNum, width: img.width, height: img.height, hash: img.hash, fileName })
+    }
+    fs.writeFileSync(path.join(workerOutDir, 'manifest.json'), JSON.stringify(manifest))
+  })().then(() => process.exit(0)).catch((e) => { console.error(e.message); process.exit(1) })
+  return undefined // unreachable in practice (process.exit above), keeps lint happy about top-level code after this block
+}
 
 // ── CLI args ────────────────────────────────────────────────────────────
 const args = process.argv.slice(2)
@@ -216,6 +241,39 @@ async function extractHeroImagesByPage(pdfPath) {
     heroByPage.set(pageNum, unique[0])
   }
   return heroByPage
+}
+
+// Runs extractHeroImagesByPage() in a throwaway child process instead of
+// in-process. Some real-world PDFs have a corrupt embedded image that
+// crashes pdfjs-dist's native image decoder with a hard process-level
+// crash — no JS exception, nothing a try/catch can ever see, just the
+// whole node process disappearing mid-run (confirmed by reproducing it
+// directly against a real file from this corpus). Isolating it here means
+// that crash only takes out this one child; the parent sees a bad exit
+// code, logs it, and moves on to the next file instead of losing the rest
+// of a 100+ file batch.
+function extractHeroImagesByPageIsolated(pdfPath) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clp-pdf-images-'))
+  try {
+    const result = spawnSync(process.execPath, [__filename, '--extract-images-worker', pdfPath, tmpDir], {
+      timeout: 120000, // a hung/corrupt PDF shouldn't stall the whole batch forever
+      maxBuffer: 1024 * 1024 * 16,
+    })
+    if (result.error || result.status !== 0 || result.signal) {
+      const why = result.signal ? `crashed (signal ${result.signal})` : result.error ? result.error.message : `exited with code ${result.status}`
+      throw new Error(`image extraction ${why}`)
+    }
+    const manifestPath = path.join(tmpDir, 'manifest.json')
+    if (!fs.existsSync(manifestPath)) throw new Error('image extraction produced no output')
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+    const heroByPage = new Map()
+    for (const entry of manifest) {
+      heroByPage.set(entry.pageNum, { width: entry.width, height: entry.height, hash: entry.hash, buf: fs.readFileSync(path.join(tmpDir, entry.fileName)) })
+    }
+    return heroByPage
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
 }
 
 // ── Groq recipe extraction, one page at a time ────────────────────────────
@@ -465,7 +523,7 @@ async function processPdf(pdfPath) {
 
   let heroByPage
   try {
-    heroByPage = await extractHeroImagesByPage(pdfPath)
+    heroByPage = extractHeroImagesByPageIsolated(pdfPath)
   } catch (e) {
     console.log(`  image extraction failed (continuing without photos): ${e.message}`)
     heroByPage = new Map()
