@@ -9,7 +9,7 @@
 // component never runs in editable mode.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
-  HeartPulse, Utensils, Pill, Phone, CalendarCheck, HelpCircle, ChefHat, MapPin, ChevronDown, ChevronRight, X,
+  HeartPulse, Utensils, Pill, Phone, CalendarCheck, HelpCircle, ChefHat, MapPin, ChevronDown, ChevronRight, X, Download,
   CheckCircle2, Circle, Sparkles, Star, ShoppingCart, Video, MessageCircle, Activity, Stethoscope, Users, Flame, Target, TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
@@ -23,6 +23,7 @@ import { splitRecipeLines } from '@/lib/recipeText'
 import { FOOD_PLATES, GROCERY_CATEGORIES, type MealType } from '@/lib/foodPlates'
 import { buildGroceryList } from '@/lib/groceryList'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
+import { buildInlineExportScript } from '@/lib/pdf/inlineExportScript'
 
 const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert']
 const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks', dessert: 'Desserts' }
@@ -176,19 +177,6 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
   const [openWeek, setOpenWeek] = useState<number | null>(null)
   const [openRecipeId, setOpenRecipeId] = useState<string | null>(null)
 
-  const allRecipesById = useMemo(() => {
-    const map = new Map<string, GuideData['recipeBank'][number]>()
-    for (const m of months) {
-      for (const w of m.weeks) {
-        for (const { matches } of getSlotRecipes(w.week_number, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, `Picked for your plan.`)) {
-          for (const rm of matches) map.set(rm.recipe.id, rm.recipe)
-        }
-      }
-    }
-    return map
-  }, [months, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank])
-  const openRecipe = openRecipeId ? allRecipesById.get(openRecipeId) : null
-
   const today = todayISO()
   const progress = useMemo(() => {
     const dateSet = new Set(checkins.map((c) => c.checkin_date))
@@ -256,8 +244,70 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
 
   const superfoodImage = useMemo(() => matchGuideImageDistinct('superfood nutrition weekly pick seasonal', data.imageBank, new Set()), [data.imageBank])
 
+  // Downloads exactly what's rendered — every collapsible block in this
+  // template is always mounted (just `display:none` when closed, never
+  // conditionally unmounted) specifically so a DOM clone captures the whole
+  // plan regardless of what happened to be open at download time, then a
+  // shared vanilla-JS "offline brain" (src/lib/pdf/inlineExportScript.ts,
+  // same one Almanac uses) makes month/week/recipe/grocery/goal toggles
+  // work with zero network calls once opened as a local file.
+  function downloadDashboard() {
+    const root = document.getElementById('pulse-export-root')
+    if (!root) return
+    const clone = root.cloneNode(true) as HTMLElement
+    clone.querySelectorAll('[data-no-export]').forEach((el) => el.remove())
+    clone.querySelectorAll('[data-hidden-section]').forEach((el) => el.remove())
+    clone.querySelectorAll('[data-month-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleMonth('${el.getAttribute('data-month-trigger')}')`))
+    clone.querySelectorAll('[data-week-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleWeek('${el.getAttribute('data-week-trigger')}')`))
+    clone.querySelectorAll('[data-recipe-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleRecipe('${el.getAttribute('data-recipe-trigger')}')`))
+    clone.querySelectorAll('[data-grocery-month-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleGroceryMonth('${el.getAttribute('data-grocery-month-trigger')}')`))
+    clone.querySelectorAll('[data-grocery-week-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleGroceryWeek('${el.getAttribute('data-grocery-week-trigger')}')`))
+    clone.querySelectorAll('[data-meal-trigger]').forEach((el) => el.setAttribute('onclick', `clpSetMealTab('${el.getAttribute('data-meal-trigger')}')`))
+    clone.querySelectorAll('[data-faq-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleFaq('${el.getAttribute('data-faq-trigger')}')`))
+    clone.querySelectorAll('[data-care-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleCare('${el.getAttribute('data-care-trigger')}')`))
+    clone.querySelectorAll('[data-goal-toggle]').forEach((el) => {
+      const key = (el.getAttribute('data-goal-toggle') || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+      el.setAttribute('onclick', `toggleGoalExport('${key}', this)`)
+    })
+    clone.querySelectorAll('[data-grocery-item]').forEach((el) => {
+      const key = (el.getAttribute('data-grocery-item') || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+      el.setAttribute('onclick', `toggleGroceryItemExport('${key}', this)`)
+    })
+    clone.querySelectorAll('[style*="position: sticky"]').forEach((el) => ((el as HTMLElement).style.position = 'static'))
+
+    const monthsData = months.map((m) => ({ monthNumber: m.monthNumber, monthLabel: m.monthLabel, weeks: m.weeks.map((w) => ({ week_number: w.week_number, totalActions: w.actions?.length ?? 0 })) }))
+    const script = buildInlineExportScript({
+      roadmapId, checkins, monthsData,
+      colors: { ink: PULSE.ink, inkSoft: PULSE.inkSoft, muted: PULSE.muted, accent: PULSE.accent, accentSoft: PULSE.accentSoft, border: PULSE.border, onAccent: '#fff' },
+    })
+    const title = (data.patient?.full_name || 'Your') + "'s Plan, Clinic Living Plus"
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${title.replace(/</g, '&lt;')}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="${FONT_LINK}" rel="stylesheet">
+<style>body{margin:0;}</style>
+</head>
+<body>${clone.outerHTML}
+<script>${script}</script>
+</body>
+</html>`
+    const blob = new Blob([html], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${(data.patient?.full_name || 'client').replace(/\s+/g, '-')}-plan.html`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
   return (
-    <div style={{ background: PULSE.bg, minHeight: '100vh', fontFamily: "'Plus Jakarta Sans', sans-serif", color: PULSE.ink, WebkitFontSmoothing: 'antialiased' }}>
+    <div id="pulse-export-root" style={{ background: PULSE.bg, minHeight: '100vh', fontFamily: "'Plus Jakarta Sans', sans-serif", color: PULSE.ink, WebkitFontSmoothing: 'antialiased' }}>
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link href={FONT_LINK} rel="stylesheet" />
       <a href={`/roadmaps/${roadmapId}/edit`} data-no-export style={{ display: 'none' }} />
@@ -268,10 +318,16 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
             <div style={{ width: 30, height: 30, borderRadius: 9, background: PULSE.accent, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 11 }}>CLP</div>
             <span style={{ fontSize: 12.5, fontWeight: 700, color: PULSE.ink }}>Clinic Living Plus</span>
           </div>
-          <div style={{ display: 'flex', gap: 14, overflowX: 'auto' }}>
-            {TOC_ITEMS.filter((item) => !isHidden(item.id)).map((item) => (
-              <a key={item.id} href={`#${item.id}`} style={{ fontSize: 11.5, fontWeight: 600, color: PULSE.muted, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>{item.label}</a>
-            ))}
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 14, overflowX: 'auto' }}>
+              {TOC_ITEMS.filter((item) => !isHidden(item.id)).map((item) => (
+                <a key={item.id} href={`#${item.id}`} style={{ fontSize: 11.5, fontWeight: 600, color: PULSE.muted, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>{item.label}</a>
+              ))}
+            </div>
+            <button onClick={downloadDashboard} data-no-export
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, padding: '7px 14px', borderRadius: 20, border: 'none', background: PULSE.accent, color: '#fff', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
+              <Download size={13} /> Download your plan
+            </button>
           </div>
         </div>
       </div>
@@ -381,7 +437,7 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
 
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 18 }}>
               {months.map((m) => (
-                <button key={m.monthNumber} onClick={() => { const next = openMonth === m.monthNumber ? null : m.monthNumber; setOpenMonth(next); setOpenWeek(null); setOpenRecipeId(null) }}
+                <button key={m.monthNumber} data-month-trigger={m.monthNumber} onClick={() => { const next = openMonth === m.monthNumber ? null : m.monthNumber; setOpenMonth(next); setOpenWeek(null); setOpenRecipeId(null) }}
                   style={{
                     padding: '8px 16px', borderRadius: 20, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700,
                     border: `1px solid ${openMonth === m.monthNumber ? PULSE.accent : PULSE.border}`,
@@ -392,11 +448,11 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
               ))}
             </div>
 
-            {months.map((m) => openMonth === m.monthNumber && (
-              <div key={m.monthNumber} style={{ marginTop: 22 }}>
+            {months.map((m) => (
+              <div key={m.monthNumber} data-month-body={m.monthNumber} style={{ marginTop: 22, display: openMonth === m.monthNumber ? 'block' : 'none' }}>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
                   {m.weeks.map((w) => (
-                    <button key={w.week_number} onClick={() => { const next = openWeek === w.week_number ? null : w.week_number; setOpenWeek(next); setOpenRecipeId(null) }}
+                    <button key={w.week_number} data-week-trigger={w.week_number} onClick={() => { const next = openWeek === w.week_number ? null : w.week_number; setOpenWeek(next); setOpenRecipeId(null) }}
                       style={{
                         textAlign: 'left', padding: '11px 15px', borderRadius: 12, cursor: 'pointer', minWidth: 150,
                         border: `1px solid ${openWeek === w.week_number ? PULSE.accent : PULSE.border}`,
@@ -408,8 +464,8 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                   ))}
                 </div>
 
-                {m.weeks.map((w) => openWeek === w.week_number && (
-                  <div key={w.week_number} style={{ borderTop: `1px solid ${PULSE.border}`, paddingTop: 20 }}>
+                {m.weeks.map((w) => (
+                  <div key={w.week_number} data-week-body={w.week_number} style={{ display: openWeek === w.week_number ? 'block' : 'none', borderTop: `1px solid ${PULSE.border}`, paddingTop: 20 }}>
                     {(w.actions?.length ?? 0) > 0 && (
                       <div style={{ marginBottom: 24 }}>
                         <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accent }}>This week&apos;s goals, tap one you&apos;ve done today</span>
@@ -417,10 +473,11 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                           {(w.actions ?? []).map((action, ai) => {
                             const checked = checkedSet.has(`${w.week_number}:${ai}:${today}`)
                             return (
-                              <li key={ai} onClick={() => toggleGoal(w.week_number, ai)}
+                              <li key={ai} data-goal-toggle={`${w.week_number}:${ai}`} onClick={() => toggleGoal(w.week_number, ai)}
                                 style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8, padding: '2px 0' }}>
-                                {checked ? <CheckCircle2 size={16} color={PULSE.accent} style={{ flexShrink: 0, marginTop: 2 }} /> : <Circle size={16} color={PULSE.muted} style={{ flexShrink: 0, marginTop: 2 }} />}
-                                <span style={{ color: checked ? PULSE.muted : PULSE.inkSoft, fontSize: '0.9rem', lineHeight: 1.6, textDecoration: checked ? 'line-through' : 'none' }}>{action}</span>
+                                <span data-goal-icon-done style={{ display: checked ? 'inline-flex' : 'none', flexShrink: 0, marginTop: 2 }}><CheckCircle2 size={16} color={PULSE.accent} /></span>
+                                <span data-goal-icon-undone style={{ display: checked ? 'none' : 'inline-flex', flexShrink: 0, marginTop: 2 }}><Circle size={16} color={PULSE.muted} /></span>
+                                <span data-goal-text style={{ color: checked ? PULSE.muted : PULSE.inkSoft, fontSize: '0.9rem', lineHeight: 1.6, textDecoration: checked ? 'line-through' : 'none' }}>{action}</span>
                               </li>
                             )
                           })}
@@ -435,7 +492,7 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                           <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.muted }}>{SLOT_LABELS[slot]}</span>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginTop: 10 }}>
                             {matches.map(({ recipe }) => (
-                              <button key={recipe.id} onClick={() => setOpenRecipeId(openRecipeId === recipe.id ? null : recipe.id)}
+                              <button key={recipe.id} data-recipe-trigger={recipe.id} onClick={() => setOpenRecipeId(openRecipeId === recipe.id ? null : recipe.id)}
                                 style={{ textAlign: 'left', padding: 0, cursor: 'pointer', background: openRecipeId === recipe.id ? PULSE.accentSoft : PULSE.bg, border: `1px solid ${openRecipeId === recipe.id ? PULSE.accent : PULSE.border}`, borderRadius: 14, overflow: 'hidden' }}>
                                 {recipe.image_url ? (
                                   <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', height: 96, objectFit: 'cover', display: 'block' }} />
@@ -452,38 +509,38 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                             ))}
                           </div>
 
-                          {openRecipe && matches.some((m) => m.recipe.id === openRecipeId) && (
-                            <div style={{ marginTop: 14, background: PULSE.bg, border: `1px solid ${PULSE.accent}`, borderRadius: 16, padding: '1.5rem', position: 'relative' }}>
-                              <button onClick={() => setOpenRecipeId(null)} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', color: PULSE.muted }}><X size={18} /></button>
-                              <div style={{ display: 'grid', gridTemplateColumns: openRecipe.image_url ? '1fr 1.3fr' : '1fr', gap: 22 }}>
-                                {openRecipe.image_url && <img src={openRecipe.image_url} alt={openRecipe.name} style={{ width: '100%', borderRadius: 12, objectFit: 'cover', maxHeight: 300 }} />}
+                          {matches.map(({ recipe }) => (
+                            <div key={recipe.id} data-recipe-body={recipe.id} style={{ display: openRecipeId === recipe.id ? 'block' : 'none', marginTop: 14, background: PULSE.bg, border: `1px solid ${PULSE.accent}`, borderRadius: 16, padding: '1.5rem', position: 'relative' }}>
+                              <button onClick={() => setOpenRecipeId(null)} data-no-export style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', color: PULSE.muted }}><X size={18} /></button>
+                              <div style={{ display: 'grid', gridTemplateColumns: recipe.image_url ? '1fr 1.3fr' : '1fr', gap: 22 }}>
+                                {recipe.image_url && <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', borderRadius: 12, objectFit: 'cover', maxHeight: 300 }} />}
                                 <div>
-                                  {openRecipe.protein_label && <Eyebrow>{openRecipe.protein_label}</Eyebrow>}
-                                  <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: PULSE.ink, margin: '0 0 14px' }}>{openRecipe.name}</h3>
+                                  {recipe.protein_label && <Eyebrow>{recipe.protein_label}</Eyebrow>}
+                                  <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: PULSE.ink, margin: '0 0 14px' }}>{recipe.name}</h3>
                                   <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accent }}>Ingredients</span>
                                   <ul style={{ listStyle: 'none', margin: '8px 0 14px', padding: 0 }}>
-                                    {splitRecipeLines(openRecipe.ingredients).map((line, i) => (
+                                    {splitRecipeLines(recipe.ingredients).map((line, i) => (
                                       <li key={i} style={{ color: PULSE.inkSoft, fontSize: '0.86rem', lineHeight: 1.6, marginBottom: 4 }}>{line}</li>
                                     ))}
                                   </ul>
                                   <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accent }}>Directions</span>
                                   <ol style={{ margin: '8px 0 0', paddingLeft: 20 }}>
-                                    {splitRecipeLines(openRecipe.steps).map((line, i) => (
+                                    {splitRecipeLines(recipe.steps).map((line, i) => (
                                       <li key={i} style={{ color: PULSE.inkSoft, fontSize: '0.86rem', lineHeight: 1.65, marginBottom: 6 }}>{line}</li>
                                     ))}
                                   </ol>
-                                  {openRecipe.benefits && openRecipe.benefits.length > 0 && (
+                                  {recipe.benefits && recipe.benefits.length > 0 && (
                                     <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${PULSE.border}` }}>
                                       <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accent }}>Why it works</span>
                                       <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0 }}>
-                                        {openRecipe.benefits.map((b, i) => <li key={i} style={{ color: PULSE.inkSoft, fontSize: '0.84rem', lineHeight: 1.55, marginBottom: 4 }}>{b}</li>)}
+                                        {recipe.benefits.map((b, i) => <li key={i} style={{ color: PULSE.inkSoft, fontSize: '0.84rem', lineHeight: 1.55, marginBottom: 4 }}>{b}</li>)}
                                       </ul>
                                     </div>
                                   )}
                                 </div>
                               </div>
                             </div>
-                          )}
+                          ))}
                         </div>
                       ))}
                   </div>
@@ -518,7 +575,7 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
           <SecTitle icon={<Utensils size={20} />}>Your power plates</SecTitle>
           <div style={{ display: 'flex', gap: 8, marginTop: 16, marginBottom: 18 }}>
             {MEAL_TYPES.map((meal) => (
-              <button key={meal} onClick={() => setActiveMeal(meal)}
+              <button key={meal} data-meal-trigger={meal} onClick={() => setActiveMeal(meal)}
                 style={{
                   padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, textTransform: 'capitalize',
                   border: activeMeal === meal ? 'none' : `1px solid ${PULSE.border}`,
@@ -528,11 +585,11 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
               </button>
             ))}
           </div>
-          {MEAL_TYPES.filter((meal) => meal === activeMeal).map((meal) => {
+          {MEAL_TYPES.map((meal) => {
             const plate = FOOD_PLATES[meal]
             const recipes = mealMatches[meal]
             return (
-              <div key={meal}>
+              <div key={meal} data-meal-body={meal} style={{ display: meal === activeMeal ? 'block' : 'none' }}>
                 <div style={{ fontSize: '0.8rem', color: PULSE.muted, marginBottom: 14 }}>{plate.ratios}</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {plate.columns.map((col) => (
@@ -588,7 +645,7 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
             <>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {months.map((m) => (
-                  <button key={m.monthNumber} onClick={() => { const next = openGroceryMonth === m.monthNumber ? null : m.monthNumber; setOpenGroceryMonth(next); setOpenGroceryWeek(null) }}
+                  <button key={m.monthNumber} data-grocery-month-trigger={m.monthNumber} onClick={() => { const next = openGroceryMonth === m.monthNumber ? null : m.monthNumber; setOpenGroceryMonth(next); setOpenGroceryWeek(null) }}
                     style={{
                       padding: '8px 16px', borderRadius: 20, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700,
                       border: `1px solid ${openGroceryMonth === m.monthNumber ? PULSE.accent : PULSE.border}`,
@@ -598,11 +655,11 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                   </button>
                 ))}
               </div>
-              {months.map((m) => openGroceryMonth === m.monthNumber && (
-                <div key={m.monthNumber} style={{ marginTop: 18 }}>
+              {months.map((m) => (
+                <div key={m.monthNumber} data-grocery-month-body={m.monthNumber} style={{ marginTop: 18, display: openGroceryMonth === m.monthNumber ? 'block' : 'none' }}>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
                     {m.weeks.map((w) => (
-                      <button key={w.week_number} onClick={() => setOpenGroceryWeek(openGroceryWeek === w.week_number ? null : w.week_number)}
+                      <button key={w.week_number} data-grocery-week-trigger={w.week_number} onClick={() => setOpenGroceryWeek(openGroceryWeek === w.week_number ? null : w.week_number)}
                         style={{
                           padding: '7px 13px', borderRadius: 10, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700,
                           border: `1px solid ${openGroceryWeek === w.week_number ? PULSE.accent : PULSE.border}`,
@@ -613,12 +670,11 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                     ))}
                   </div>
                   {m.weeks.map((w) => {
-                    if (openGroceryWeek !== w.week_number) return null
                     const weekRecipes = getSlotRecipes(w.week_number, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, 'Picked for your plan.').flatMap((s) => s.matches).map((mm) => mm.recipe)
                     const cats = buildGroceryList(weekRecipes)
                     const finalCats = cats.length > 0 ? cats : GROCERY_CATEGORIES
                     return (
-                      <div key={w.week_number} style={{ borderTop: `1px solid ${PULSE.border}`, paddingTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 18 }}>
+                      <div key={w.week_number} data-grocery-week-body={w.week_number} style={{ display: openGroceryWeek === w.week_number ? 'grid' : 'none', borderTop: `1px solid ${PULSE.border}`, paddingTop: 18, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 18 }}>
                         {finalCats.map((cat) => (
                           <div key={cat.head}>
                             <span style={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accentDeep }}>{cat.head}</span>
@@ -627,10 +683,11 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                                 const itemKey = `${w.week_number}:${cat.head}:${item}`
                                 const bought = boughtItems.has(itemKey)
                                 return (
-                                  <li key={item} onClick={() => toggleBought(itemKey)}
+                                  <li key={item} data-grocery-item={itemKey} onClick={() => toggleBought(itemKey)}
                                     style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.81rem', color: bought ? PULSE.muted : PULSE.inkSoft, padding: '3px 0', cursor: 'pointer' }}>
-                                    {bought ? <CheckCircle2 size={13} color={PULSE.accent} style={{ flexShrink: 0 }} /> : <Circle size={13} color={PULSE.muted} style={{ flexShrink: 0 }} />}
-                                    <span style={{ textDecoration: bought ? 'line-through' : 'none' }}>{item}</span>
+                                    <span data-grocery-icon-done style={{ display: bought ? 'inline-flex' : 'none', flexShrink: 0 }}><CheckCircle2 size={13} color={PULSE.accent} /></span>
+                                    <span data-grocery-icon-undone style={{ display: bought ? 'none' : 'inline-flex', flexShrink: 0 }}><Circle size={13} color={PULSE.muted} /></span>
+                                    <span data-grocery-item-text style={{ textDecoration: bought ? 'line-through' : 'none' }}>{item}</span>
                                   </li>
                                 )
                               })}
@@ -674,7 +731,7 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                 const Icon = CARE_ICON_MAP[svc.icon] || Star
                 const isOpen = openService === i
                 return (
-                  <button key={i} onClick={() => setOpenService(isOpen ? null : i)}
+                  <button key={i} data-care-trigger={i} onClick={() => setOpenService(isOpen ? null : i)}
                     style={{ textAlign: 'left', padding: '13px 12px', borderRadius: 14, cursor: 'pointer', border: `1px solid ${isOpen ? PULSE.accent : PULSE.border}`, background: isOpen ? PULSE.accentSoft : PULSE.bg }}>
                     <div style={{ width: 30, height: 30, borderRadius: 8, background: '#fff', border: `1px solid ${PULSE.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 9 }}>
                       <Icon size={15} color={PULSE.accent} />
@@ -685,12 +742,12 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                 )
               })}
             </div>
-            {openService != null && data.careServices[openService]?.description && (
-              <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 12, border: `1px solid ${PULSE.border}`, background: PULSE.bg }}>
-                <div style={{ fontWeight: 700, fontSize: '0.87rem', marginBottom: 6, color: PULSE.ink }}>{data.careServices[openService].name}</div>
-                <p style={{ fontSize: '0.85rem', lineHeight: 1.55, margin: 0, color: PULSE.inkSoft }}>{renderMarkdownBold(data.careServices[openService].description || '')}</p>
+            {data.careServices.map((svc, i) => svc.description && (
+              <div key={i} data-care-body={i} style={{ display: openService === i ? 'block' : 'none', marginTop: 14, padding: '14px 16px', borderRadius: 12, border: `1px solid ${PULSE.border}`, background: PULSE.bg }}>
+                <div style={{ fontWeight: 700, fontSize: '0.87rem', marginBottom: 6, color: PULSE.ink }}>{svc.name}</div>
+                <p style={{ fontSize: '0.85rem', lineHeight: 1.55, margin: 0, color: PULSE.inkSoft }}>{renderMarkdownBold(svc.description || '')}</p>
               </div>
-            )}
+            ))}
           </Card>
         )}
 
@@ -698,36 +755,33 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
         <Card id="track" hidden={isHidden('track')}>
           <Eyebrow>Real numbers, not a guess</Eyebrow>
           <SecTitle icon={<CheckCircle2 size={20} />}>Track your progress</SecTitle>
-          {progress.totalDaysLogged === 0 ? (
-            <p style={{ fontSize: '0.87rem', color: PULSE.muted, marginTop: 14 }}>No check-ins logged yet, tap a goal in your roadmap above each day you complete it, and your progress will show up here.</p>
-          ) : (
-            <>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 18, marginBottom: 22 }}>
-                {[
-                  { icon: <Flame size={14} />, value: progress.streak, label: 'day streak' },
-                  { icon: <CalendarCheck size={14} />, value: progress.totalDaysLogged, label: 'days logged, total' },
-                  { icon: <Target size={14} />, value: `${goalsDone}/${totalActionsInPlan}`, label: 'goals accomplished' },
-                  { icon: <TrendingUp size={14} />, value: progress.bestMonth ? `${progress.bestMonth.pct}%` : '0%', label: progress.bestMonth ? `best month · ${progress.bestMonth.monthLabel}` : 'best month' },
-                ].map((s, i) => (
-                  <div key={i} style={{ flex: '1 1 125px', padding: '12px 14px', borderRadius: 12, border: `1px solid ${PULSE.border}`, background: PULSE.bg }}>
-                    <span style={{ color: PULSE.accent }}>{s.icon}</span>
-                    <div style={{ fontSize: '1.05rem', fontWeight: 800, marginTop: 8, color: PULSE.ink }}>{s.value}</div>
-                    <div style={{ fontSize: '0.73rem', color: PULSE.muted, marginTop: 2 }}>{s.label}</div>
-                  </div>
-                ))}
-              </div>
-              <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.muted }}>Goals completed by month</span>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, marginTop: 12 }}>
-                {progress.monthStats.map((m) => (
-                  <div key={m.monthNumber} style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '1.25rem', fontWeight: 800, color: m.pct >= 70 ? PULSE.accent : PULSE.ink }}>{m.pct}%</div>
-                    <div style={{ fontSize: '0.76rem', fontWeight: 700, marginTop: 2, color: PULSE.ink }}>{m.monthLabel}</div>
-                    <div style={{ fontSize: '0.7rem', color: PULSE.muted }}>{m.doneActions}/{m.totalActions} goals</div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
+          <p data-track-empty style={{ fontSize: '0.87rem', color: PULSE.muted, marginTop: 14, display: progress.totalDaysLogged === 0 ? 'block' : 'none' }}>No check-ins logged yet, tap a goal in your roadmap above each day you complete it, and your progress will show up here.</p>
+          <div data-track-content style={{ display: progress.totalDaysLogged === 0 ? 'none' : 'block' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 18, marginBottom: 22 }}>
+              {[
+                { key: 'streak', icon: <Flame size={14} />, value: progress.streak, label: 'day streak' },
+                { key: 'days', icon: <CalendarCheck size={14} />, value: progress.totalDaysLogged, label: 'days logged, total' },
+                { key: 'goals', icon: <Target size={14} />, value: `${goalsDone}/${totalActionsInPlan}`, label: 'goals accomplished' },
+                { key: 'best', icon: <TrendingUp size={14} />, value: progress.bestMonth ? `${progress.bestMonth.pct}%` : '0%', label: progress.bestMonth ? `best month · ${progress.bestMonth.monthLabel}` : 'best month' },
+              ].map((s) => (
+                <div key={s.key} style={{ flex: '1 1 125px', padding: '12px 14px', borderRadius: 12, border: `1px solid ${PULSE.border}`, background: PULSE.bg }}>
+                  <span style={{ color: PULSE.accent }}>{s.icon}</span>
+                  <div data-stat={s.key} style={{ fontSize: '1.05rem', fontWeight: 800, marginTop: 8, color: PULSE.ink }}>{s.value}</div>
+                  <div data-stat-label={s.key} style={{ fontSize: '0.73rem', color: PULSE.muted, marginTop: 2 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.muted }}>Goals completed by month</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, marginTop: 12 }}>
+              {progress.monthStats.map((m) => (
+                <div key={m.monthNumber} style={{ textAlign: 'center' }}>
+                  <div data-stat-pct={m.monthNumber} style={{ fontSize: '1.25rem', fontWeight: 800, color: m.pct >= 70 ? PULSE.accent : PULSE.ink }}>{m.pct}%</div>
+                  <div style={{ fontSize: '0.76rem', fontWeight: 700, marginTop: 2, color: PULSE.ink }}>{m.monthLabel}</div>
+                  <div data-stat-sub={m.monthNumber} style={{ fontSize: '0.7rem', color: PULSE.muted }}>{m.doneActions}/{m.totalActions} goals</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </Card>
 
         {/* When to reach us */}
@@ -771,12 +825,12 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
               const isOpen = openFaq === i
               return (
                 <div key={i} style={{ borderBottom: i < 2 ? `1px solid ${PULSE.border}` : 'none' }}>
-                  <button onClick={() => setOpenFaq(isOpen ? null : i)}
+                  <button data-faq-trigger={i} onClick={() => setOpenFaq(isOpen ? null : i)}
                     style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '13px 0', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
                     <span style={{ color: PULSE.ink, fontWeight: 700, fontSize: '0.92rem' }}>{q}</span>
                     {isOpen ? <ChevronDown size={16} color={PULSE.accent} style={{ flexShrink: 0 }} /> : <ChevronRight size={16} color={PULSE.muted} style={{ flexShrink: 0 }} />}
                   </button>
-                  {isOpen && <div style={{ color: PULSE.inkSoft, fontSize: '0.86rem', paddingBottom: 15 }}>{a}</div>}
+                  <div data-faq-body={i} style={{ display: isOpen ? 'block' : 'none', color: PULSE.inkSoft, fontSize: '0.86rem', paddingBottom: 15 }}>{a}</div>
                 </div>
               )
             })}

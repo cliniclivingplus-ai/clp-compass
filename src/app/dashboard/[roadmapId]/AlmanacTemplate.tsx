@@ -17,7 +17,7 @@
 // increases — a meaningful visual grounded in real data instead.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
-  HeartPulse, Utensils, Pill, Phone, CalendarCheck, HelpCircle, ChefHat, MapPin, ChevronDown, ChevronRight, X,
+  HeartPulse, Utensils, Pill, Phone, CalendarCheck, HelpCircle, ChefHat, MapPin, ChevronDown, ChevronRight, X, Download,
   CheckCircle2, Circle, Sparkles, Star, ShoppingCart, Video, MessageCircle, Activity, Stethoscope, Users, Flame, Target, TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
@@ -31,6 +31,7 @@ import { splitRecipeLines } from '@/lib/recipeText'
 import { FOOD_PLATES, GROCERY_CATEGORIES, type MealType } from '@/lib/foodPlates'
 import { buildGroceryList } from '@/lib/groceryList'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
+import { buildInlineExportScript } from '@/lib/pdf/inlineExportScript'
 
 const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert']
 const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks', dessert: 'Desserts' }
@@ -184,19 +185,6 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
   const [openWeek, setOpenWeek] = useState<number | null>(null)
   const [openRecipeId, setOpenRecipeId] = useState<string | null>(null)
 
-  const allRecipesById = useMemo(() => {
-    const map = new Map<string, GuideData['recipeBank'][number]>()
-    for (const m of months) {
-      for (const w of m.weeks) {
-        for (const { matches } of getSlotRecipes(w.week_number, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, `Picked for your plan.`)) {
-          for (const rm of matches) map.set(rm.recipe.id, rm.recipe)
-        }
-      }
-    }
-    return map
-  }, [months, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank])
-  const openRecipe = openRecipeId ? allRecipesById.get(openRecipeId) : null
-
   // Same real check-in-derived stats "Track your progress" shows in
   // Classic (src/app/dashboard/[roadmapId]/DashboardClient.tsx) — never a
   // placeholder number.
@@ -282,8 +270,70 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
   // — a plain icon tile shows instead if nothing in the picture bank fits.
   const superfoodImage = useMemo(() => matchGuideImageDistinct('superfood nutrition weekly pick seasonal', data.imageBank, new Set()), [data.imageBank])
 
+  // Downloads exactly what's rendered — every collapsible block in this
+  // template is always mounted (just `display:none` when closed, never
+  // conditionally unmounted) specifically so a DOM clone captures the whole
+  // plan regardless of what happened to be open at download time, then a
+  // shared vanilla-JS "offline brain" (src/lib/pdf/inlineExportScript.ts,
+  // same one Pulse uses) makes month/week/recipe/grocery/goal toggles work
+  // with zero network calls once opened as a local file.
+  function downloadDashboard() {
+    const root = document.getElementById('almanac-export-root')
+    if (!root) return
+    const clone = root.cloneNode(true) as HTMLElement
+    clone.querySelectorAll('[data-no-export]').forEach((el) => el.remove())
+    clone.querySelectorAll('[data-hidden-section]').forEach((el) => el.remove())
+    clone.querySelectorAll('[data-month-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleMonth('${el.getAttribute('data-month-trigger')}')`))
+    clone.querySelectorAll('[data-week-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleWeek('${el.getAttribute('data-week-trigger')}')`))
+    clone.querySelectorAll('[data-recipe-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleRecipe('${el.getAttribute('data-recipe-trigger')}')`))
+    clone.querySelectorAll('[data-grocery-month-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleGroceryMonth('${el.getAttribute('data-grocery-month-trigger')}')`))
+    clone.querySelectorAll('[data-grocery-week-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleGroceryWeek('${el.getAttribute('data-grocery-week-trigger')}')`))
+    clone.querySelectorAll('[data-meal-trigger]').forEach((el) => el.setAttribute('onclick', `clpSetMealTab('${el.getAttribute('data-meal-trigger')}')`))
+    clone.querySelectorAll('[data-faq-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleFaq('${el.getAttribute('data-faq-trigger')}')`))
+    clone.querySelectorAll('[data-care-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleCare('${el.getAttribute('data-care-trigger')}')`))
+    clone.querySelectorAll('[data-goal-toggle]').forEach((el) => {
+      const key = (el.getAttribute('data-goal-toggle') || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+      el.setAttribute('onclick', `toggleGoalExport('${key}', this)`)
+    })
+    clone.querySelectorAll('[data-grocery-item]').forEach((el) => {
+      const key = (el.getAttribute('data-grocery-item') || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+      el.setAttribute('onclick', `toggleGroceryItemExport('${key}', this)`)
+    })
+    clone.querySelectorAll('[style*="position: sticky"]').forEach((el) => ((el as HTMLElement).style.position = 'static'))
+
+    const monthsData = months.map((m) => ({ monthNumber: m.monthNumber, monthLabel: m.monthLabel, weeks: m.weeks.map((w) => ({ week_number: w.week_number, totalActions: w.actions?.length ?? 0 })) }))
+    const script = buildInlineExportScript({
+      roadmapId, checkins, monthsData,
+      colors: { ink: PALETTE.ink, inkSoft: PALETTE.ink, muted: 'rgba(43,42,34,0.55)', accent: PALETTE.berry, accentSoft: 'rgba(122,51,70,0.08)', border: PALETTE.line, onAccent: '#fff' },
+    })
+    const title = (data.patient?.full_name || 'Your') + "'s Plan, Clinic Living Plus"
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${title.replace(/</g, '&lt;')}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="${FONT_LINK}" rel="stylesheet">
+<style>body{margin:0;}</style>
+</head>
+<body>${clone.outerHTML}
+<script>${script}</script>
+</body>
+</html>`
+    const blob = new Blob([html], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${(data.patient?.full_name || 'client').replace(/\s+/g, '-')}-plan.html`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
   return (
-    <div style={{ background: PALETTE.paper1, minHeight: '100vh', fontFamily: "'Work Sans', sans-serif", color: PALETTE.ink, WebkitFontSmoothing: 'antialiased' }}>
+    <div id="almanac-export-root" style={{ background: PALETTE.paper1, minHeight: '100vh', fontFamily: "'Work Sans', sans-serif", color: PALETTE.ink, WebkitFontSmoothing: 'antialiased' }}>
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link href={FONT_LINK} rel="stylesheet" />
       <a href={`/roadmaps/${roadmapId}/edit`} data-no-export style={{ display: 'none' }} />
@@ -304,6 +354,10 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.6 }}>
             {totalActionsInPlan > 0 ? `${GROWTH_LABELS[adherencePct >= 85 ? 4 : adherencePct >= 60 ? 3 : adherencePct >= 35 ? 2 : adherencePct >= 10 ? 1 : 0]} · ${goalsDone}/${totalActionsInPlan} goals tracked` : 'Your progress tree, check off goals in your plan to grow it'}
           </div>
+          <button onClick={downloadDashboard} data-no-export
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 24, padding: '10px 20px', borderRadius: 24, border: 'none', background: PALETTE.berry, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            <Download size={15} /> Download your plan
+          </button>
         </div>
       </section>
 
@@ -431,7 +485,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <SecTitle icon={<Utensils size={26} />}>Your Power Plates</SecTitle>
           <div style={{ display: 'flex', gap: 8, marginTop: 20, marginBottom: 20 }}>
             {MEAL_TYPES.map((meal) => (
-              <button key={meal} onClick={() => setActiveMeal(meal)}
+              <button key={meal} data-meal-trigger={meal} onClick={() => setActiveMeal(meal)}
                 style={{
                   padding: '8px 18px', borderRadius: 20, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700, textTransform: 'capitalize',
                   border: activeMeal === meal ? 'none' : `1px solid ${PALETTE.line}`,
@@ -441,11 +495,11 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
               </button>
             ))}
           </div>
-          {MEAL_TYPES.filter((meal) => meal === activeMeal).map((meal) => {
+          {MEAL_TYPES.map((meal) => {
             const plate = FOOD_PLATES[meal]
             const recipes = mealMatches[meal]
             return (
-              <div key={meal}>
+              <div key={meal} data-meal-body={meal} style={{ display: meal === activeMeal ? 'block' : 'none' }}>
                 <div style={{ fontSize: '0.82rem', opacity: 0.65, marginBottom: 16 }}>{plate.ratios}</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   {plate.columns.map((col) => (
@@ -494,7 +548,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
 
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 24 }}>
               {months.map((m) => (
-                <button key={m.monthNumber} onClick={() => { const next = openMonth === m.monthNumber ? null : m.monthNumber; setOpenMonth(next); setOpenWeek(null); setOpenRecipeId(null) }}
+                <button key={m.monthNumber} data-month-trigger={m.monthNumber} onClick={() => { const next = openMonth === m.monthNumber ? null : m.monthNumber; setOpenMonth(next); setOpenWeek(null); setOpenRecipeId(null) }}
                   style={{
                     padding: '9px 18px', borderRadius: 24, cursor: 'pointer', fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', letterSpacing: '0.04em',
                     border: `1px solid ${openMonth === m.monthNumber ? PALETTE.gold1 : 'rgba(243,236,218,0.3)'}`,
@@ -505,11 +559,11 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
               ))}
             </div>
 
-            {months.map((m) => openMonth === m.monthNumber && (
-              <div key={m.monthNumber} style={{ marginTop: 28 }}>
+            {months.map((m) => (
+              <div key={m.monthNumber} data-month-body={m.monthNumber} style={{ marginTop: 28, display: openMonth === m.monthNumber ? 'block' : 'none' }}>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
                   {m.weeks.map((w) => (
-                    <button key={w.week_number} onClick={() => { const next = openWeek === w.week_number ? null : w.week_number; setOpenWeek(next); setOpenRecipeId(null) }}
+                    <button key={w.week_number} data-week-trigger={w.week_number} onClick={() => { const next = openWeek === w.week_number ? null : w.week_number; setOpenWeek(next); setOpenRecipeId(null) }}
                       style={{
                         textAlign: 'left', padding: '12px 16px', borderRadius: 10, cursor: 'pointer', minWidth: 150,
                         border: `1px solid ${openWeek === w.week_number ? PALETTE.gold1 : 'rgba(243,236,218,0.22)'}`,
@@ -521,8 +575,8 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                   ))}
                 </div>
 
-                {m.weeks.map((w) => openWeek === w.week_number && (
-                  <div key={w.week_number} style={{ borderTop: '1px solid rgba(243,236,218,0.18)', paddingTop: 24 }}>
+                {m.weeks.map((w) => (
+                  <div key={w.week_number} data-week-body={w.week_number} style={{ display: openWeek === w.week_number ? 'block' : 'none', borderTop: '1px solid rgba(243,236,218,0.18)', paddingTop: 24 }}>
                     {(w.actions?.length ?? 0) > 0 && (
                       <div style={{ marginBottom: 28 }}>
                         <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1, opacity: 0.85 }}>This week&apos;s goals, tap one you&apos;ve done today</span>
@@ -530,10 +584,11 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                           {(w.actions ?? []).map((action, ai) => {
                             const checked = checkedSet.has(`${w.week_number}:${ai}:${today}`)
                             return (
-                              <li key={ai} onClick={() => toggleGoal(w.week_number, ai)}
+                              <li key={ai} data-goal-toggle={`${w.week_number}:${ai}`} onClick={() => toggleGoal(w.week_number, ai)}
                                 style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8, padding: '2px 0' }}>
-                                {checked ? <CheckCircle2 size={16} color={PALETTE.gold1} style={{ flexShrink: 0, marginTop: 2 }} /> : <Circle size={16} color={PALETTE.cream} opacity={0.5} style={{ flexShrink: 0, marginTop: 2 }} />}
-                                <span style={{ color: PALETTE.cream, opacity: checked ? 0.55 : 0.9, fontSize: '0.92rem', lineHeight: 1.6, textDecoration: checked ? 'line-through' : 'none' }}>{action}</span>
+                                <span data-goal-icon-done style={{ display: checked ? 'inline-flex' : 'none', flexShrink: 0, marginTop: 2 }}><CheckCircle2 size={16} color={PALETTE.gold1} /></span>
+                                <span data-goal-icon-undone style={{ display: checked ? 'none' : 'inline-flex', flexShrink: 0, marginTop: 2 }}><Circle size={16} color={PALETTE.cream} opacity={0.5} /></span>
+                                <span data-goal-text style={{ color: PALETTE.cream, opacity: checked ? 0.55 : 0.9, fontSize: '0.92rem', lineHeight: 1.6, textDecoration: checked ? 'line-through' : 'none' }}>{action}</span>
                               </li>
                             )
                           })}
@@ -548,7 +603,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                           <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1, opacity: 0.85 }}>{SLOT_LABELS[slot]}</span>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginTop: 10 }}>
                             {matches.map(({ recipe }) => (
-                              <button key={recipe.id} onClick={() => setOpenRecipeId(openRecipeId === recipe.id ? null : recipe.id)}
+                              <button key={recipe.id} data-recipe-trigger={recipe.id} onClick={() => setOpenRecipeId(openRecipeId === recipe.id ? null : recipe.id)}
                                 style={{ textAlign: 'left', padding: 0, cursor: 'pointer', background: openRecipeId === recipe.id ? 'rgba(224,195,132,0.16)' : 'rgba(243,236,218,0.08)', border: `1px solid ${openRecipeId === recipe.id ? PALETTE.gold1 : 'rgba(243,236,218,0.22)'}`, borderRadius: 12, overflow: 'hidden' }}>
                                 {recipe.image_url ? (
                                   <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', height: 100, objectFit: 'cover', display: 'block' }} />
@@ -567,39 +622,42 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
 
                           {/* Recipe detail — expands inline, right under the
                               slot it belongs to, as part of the page rather
-                              than a floating popup. */}
-                          {openRecipe && matches.some((m) => m.recipe.id === openRecipeId) && (
-                            <div style={{ marginTop: 14, background: 'rgba(243,236,218,0.06)', border: `1px solid ${PALETTE.gold1}`, borderRadius: 14, padding: '1.75rem', position: 'relative' }}>
-                              <button onClick={() => setOpenRecipeId(null)} style={{ position: 'absolute', top: 18, right: 18, background: 'none', border: 'none', cursor: 'pointer', color: PALETTE.cream, opacity: 0.6 }}><X size={18} /></button>
-                              <div style={{ display: 'grid', gridTemplateColumns: openRecipe.image_url ? '1fr 1.3fr' : '1fr', gap: 24 }}>
-                                {openRecipe.image_url && <img src={openRecipe.image_url} alt={openRecipe.name} style={{ width: '100%', borderRadius: 10, objectFit: 'cover', maxHeight: 320 }} />}
+                              than a floating popup. Every match's detail is
+                              always mounted (just hidden) so a downloaded
+                              copy of this page has every recipe available,
+                              not just whichever one happened to be open. */}
+                          {matches.map(({ recipe }) => (
+                            <div key={recipe.id} data-recipe-body={recipe.id} style={{ display: openRecipeId === recipe.id ? 'block' : 'none', marginTop: 14, background: 'rgba(243,236,218,0.06)', border: `1px solid ${PALETTE.gold1}`, borderRadius: 14, padding: '1.75rem', position: 'relative' }}>
+                              <button onClick={() => setOpenRecipeId(null)} data-no-export style={{ position: 'absolute', top: 18, right: 18, background: 'none', border: 'none', cursor: 'pointer', color: PALETTE.cream, opacity: 0.6 }}><X size={18} /></button>
+                              <div style={{ display: 'grid', gridTemplateColumns: recipe.image_url ? '1fr 1.3fr' : '1fr', gap: 24 }}>
+                                {recipe.image_url && <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', borderRadius: 10, objectFit: 'cover', maxHeight: 320 }} />}
                                 <div>
-                                  {openRecipe.protein_label && <Eyebrow dark>{openRecipe.protein_label}</Eyebrow>}
-                                  <h3 style={{ fontFamily: "'Fraunces', serif", fontWeight: 500, fontSize: '1.4rem', color: PALETTE.cream, margin: '0 0 16px' }}>{openRecipe.name}</h3>
+                                  {recipe.protein_label && <Eyebrow dark>{recipe.protein_label}</Eyebrow>}
+                                  <h3 style={{ fontFamily: "'Fraunces', serif", fontWeight: 500, fontSize: '1.4rem', color: PALETTE.cream, margin: '0 0 16px' }}>{recipe.name}</h3>
                                   <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1 }}>Ingredients</span>
                                   <ul style={{ listStyle: 'none', margin: '8px 0 16px', padding: 0 }}>
-                                    {splitRecipeLines(openRecipe.ingredients).map((line, i) => (
+                                    {splitRecipeLines(recipe.ingredients).map((line, i) => (
                                       <li key={i} style={{ color: PALETTE.cream, opacity: 0.9, fontSize: '0.88rem', lineHeight: 1.6, marginBottom: 4 }}>{line}</li>
                                     ))}
                                   </ul>
                                   <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1 }}>Directions</span>
                                   <ol style={{ margin: '8px 0 0', paddingLeft: 20 }}>
-                                    {splitRecipeLines(openRecipe.steps).map((line, i) => (
+                                    {splitRecipeLines(recipe.steps).map((line, i) => (
                                       <li key={i} style={{ color: PALETTE.cream, opacity: 0.9, fontSize: '0.88rem', lineHeight: 1.65, marginBottom: 6 }}>{line}</li>
                                     ))}
                                   </ol>
-                                  {openRecipe.benefits && openRecipe.benefits.length > 0 && (
+                                  {recipe.benefits && recipe.benefits.length > 0 && (
                                     <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(243,236,218,0.18)' }}>
                                       <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1 }}>Why it works</span>
                                       <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0 }}>
-                                        {openRecipe.benefits.map((b, i) => <li key={i} style={{ color: PALETTE.cream, opacity: 0.9, fontSize: '0.86rem', lineHeight: 1.55, marginBottom: 4 }}>{b}</li>)}
+                                        {recipe.benefits.map((b, i) => <li key={i} style={{ color: PALETTE.cream, opacity: 0.9, fontSize: '0.86rem', lineHeight: 1.55, marginBottom: 4 }}>{b}</li>)}
                                       </ul>
                                     </div>
                                   )}
                                 </div>
                               </div>
                             </div>
-                          )}
+                          ))}
                         </div>
                       ))}
                   </div>
@@ -656,7 +714,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
             <>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {months.map((m) => (
-                  <button key={m.monthNumber} onClick={() => { const next = openGroceryMonth === m.monthNumber ? null : m.monthNumber; setOpenGroceryMonth(next); setOpenGroceryWeek(null) }}
+                  <button key={m.monthNumber} data-grocery-month-trigger={m.monthNumber} onClick={() => { const next = openGroceryMonth === m.monthNumber ? null : m.monthNumber; setOpenGroceryMonth(next); setOpenGroceryWeek(null) }}
                     style={{
                       padding: '9px 18px', borderRadius: 24, cursor: 'pointer', fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem',
                       border: `1px solid ${openGroceryMonth === m.monthNumber ? PALETTE.berry : PALETTE.line}`,
@@ -666,11 +724,11 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                   </button>
                 ))}
               </div>
-              {months.map((m) => openGroceryMonth === m.monthNumber && (
-                <div key={m.monthNumber} style={{ marginTop: 20 }}>
+              {months.map((m) => (
+                <div key={m.monthNumber} data-grocery-month-body={m.monthNumber} style={{ marginTop: 20, display: openGroceryMonth === m.monthNumber ? 'block' : 'none' }}>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
                     {m.weeks.map((w) => (
-                      <button key={w.week_number} onClick={() => setOpenGroceryWeek(openGroceryWeek === w.week_number ? null : w.week_number)}
+                      <button key={w.week_number} data-grocery-week-trigger={w.week_number} onClick={() => setOpenGroceryWeek(openGroceryWeek === w.week_number ? null : w.week_number)}
                         style={{
                           padding: '8px 14px', borderRadius: 10, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700,
                           border: `1px solid ${openGroceryWeek === w.week_number ? PALETTE.berry : PALETTE.line}`,
@@ -681,12 +739,11 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                     ))}
                   </div>
                   {m.weeks.map((w) => {
-                    if (openGroceryWeek !== w.week_number) return null
                     const weekRecipes = getSlotRecipes(w.week_number, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, 'Picked for your plan.').flatMap((s) => s.matches).map((mm) => mm.recipe)
                     const cats = buildGroceryList(weekRecipes)
                     const finalCats = cats.length > 0 ? cats : GROCERY_CATEGORIES
                     return (
-                      <div key={w.week_number} style={{ borderTop: `1px solid ${PALETTE.line}`, paddingTop: 20, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 20 }}>
+                      <div key={w.week_number} data-grocery-week-body={w.week_number} style={{ display: openGroceryWeek === w.week_number ? 'grid' : 'none', borderTop: `1px solid ${PALETTE.line}`, paddingTop: 20, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 20 }}>
                         {finalCats.map((cat) => (
                           <div key={cat.head}>
                             <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.68rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.berry }}>{cat.head}</span>
@@ -695,10 +752,11 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                                 const itemKey = `${w.week_number}:${cat.head}:${item}`
                                 const bought = boughtItems.has(itemKey)
                                 return (
-                                  <li key={item} onClick={() => toggleBought(itemKey)}
+                                  <li key={item} data-grocery-item={itemKey} onClick={() => toggleBought(itemKey)}
                                     style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', opacity: bought ? 0.45 : 0.8, padding: '3px 0', cursor: 'pointer' }}>
-                                    {bought ? <CheckCircle2 size={13} color={PALETTE.berry} style={{ flexShrink: 0 }} /> : <Circle size={13} opacity={0.5} style={{ flexShrink: 0 }} />}
-                                    <span style={{ textDecoration: bought ? 'line-through' : 'none' }}>{item}</span>
+                                    <span data-grocery-icon-done style={{ display: bought ? 'inline-flex' : 'none', flexShrink: 0 }}><CheckCircle2 size={13} color={PALETTE.berry} /></span>
+                                    <span data-grocery-icon-undone style={{ display: bought ? 'none' : 'inline-flex', flexShrink: 0 }}><Circle size={13} opacity={0.5} /></span>
+                                    <span data-grocery-item-text style={{ textDecoration: bought ? 'line-through' : 'none' }}>{item}</span>
                                   </li>
                                 )
                               })}
@@ -727,7 +785,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                 const Icon = CARE_ICON_MAP[svc.icon] || Star
                 const isOpen = openService === i
                 return (
-                  <button key={i} onClick={() => setOpenService(isOpen ? null : i)}
+                  <button key={i} data-care-trigger={i} onClick={() => setOpenService(isOpen ? null : i)}
                     style={{ textAlign: 'left', padding: '14px 12px', borderRadius: 12, cursor: 'pointer', border: `1px solid ${isOpen ? PALETTE.berry : PALETTE.line}`, background: isOpen ? 'rgba(122,51,70,0.06)' : 'rgba(255,255,255,0.35)' }}>
                     <div style={{ width: 32, height: 32, borderRadius: 8, background: PALETTE.gold1, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
                       <Icon size={16} color={PALETTE.ink} />
@@ -738,12 +796,12 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                 )
               })}
             </div>
-            {openService != null && data.careServices[openService]?.description && (
-              <div style={{ marginTop: 16, padding: '16px 18px', borderRadius: 10, border: `1px solid ${PALETTE.line}`, background: 'rgba(255,255,255,0.35)' }}>
-                <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6 }}>{data.careServices[openService].name}</div>
-                <p style={{ fontSize: '0.87rem', lineHeight: 1.55, margin: 0 }}>{renderMarkdownBold(data.careServices[openService].description || '')}</p>
+            {data.careServices.map((svc, i) => svc.description && (
+              <div key={i} data-care-body={i} style={{ display: openService === i ? 'block' : 'none', marginTop: 16, padding: '16px 18px', borderRadius: 10, border: `1px solid ${PALETTE.line}`, background: 'rgba(255,255,255,0.35)' }}>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6 }}>{svc.name}</div>
+                <p style={{ fontSize: '0.87rem', lineHeight: 1.55, margin: 0 }}>{renderMarkdownBold(svc.description || '')}</p>
               </div>
-            )}
+            ))}
           </div>
         </section>
       )}
@@ -753,36 +811,33 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>Real numbers, not a guess</Eyebrow>
           <SecTitle icon={<CheckCircle2 size={26} />}>Track Your Progress</SecTitle>
-          {progress.totalDaysLogged === 0 ? (
-            <p style={{ fontSize: '0.9rem', opacity: 0.65, marginTop: 16 }}>No check-ins logged yet, tap a goal in your roadmap above each day you complete it, and your progress will show up here.</p>
-          ) : (
-            <>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 20, marginBottom: 24 }}>
-                {[
-                  { icon: <Flame size={14} />, value: progress.streak, label: 'day streak' },
-                  { icon: <CalendarCheck size={14} />, value: progress.totalDaysLogged, label: 'days logged, total' },
-                  { icon: <Target size={14} />, value: `${goalsDone}/${totalActionsInPlan}`, label: 'goals accomplished' },
-                  { icon: <TrendingUp size={14} />, value: progress.bestMonth ? `${progress.bestMonth.pct}%` : '0%', label: progress.bestMonth ? `best month · ${progress.bestMonth.monthLabel}` : 'best month' },
-                ].map((s, i) => (
-                  <div key={i} style={{ flex: '1 1 130px', padding: '12px 14px', borderRadius: 10, border: `1px solid ${PALETTE.line}`, background: 'rgba(255,255,255,0.35)' }}>
-                    <span style={{ color: PALETTE.berry }}>{s.icon}</span>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 700, marginTop: 8 }}>{s.value}</div>
-                    <div style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: 2 }}>{s.label}</div>
-                  </div>
-                ))}
-              </div>
-              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', opacity: 0.6 }}>Goals completed by month</span>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, marginTop: 12 }}>
-                {progress.monthStats.map((m) => (
-                  <div key={m.monthNumber} style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '1.3rem', fontWeight: 700, fontFamily: "'Fraunces', serif", color: m.pct >= 70 ? PALETTE.berry : PALETTE.ink }}>{m.pct}%</div>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 600, marginTop: 2 }}>{m.monthLabel}</div>
-                    <div style={{ fontSize: '0.72rem', opacity: 0.55 }}>{m.doneActions}/{m.totalActions} goals</div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
+          <p data-track-empty style={{ fontSize: '0.9rem', opacity: 0.65, marginTop: 16, display: progress.totalDaysLogged === 0 ? 'block' : 'none' }}>No check-ins logged yet, tap a goal in your roadmap above each day you complete it, and your progress will show up here.</p>
+          <div data-track-content style={{ display: progress.totalDaysLogged === 0 ? 'none' : 'block' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 20, marginBottom: 24 }}>
+              {[
+                { key: 'streak', icon: <Flame size={14} />, value: progress.streak, label: 'day streak' },
+                { key: 'days', icon: <CalendarCheck size={14} />, value: progress.totalDaysLogged, label: 'days logged, total' },
+                { key: 'goals', icon: <Target size={14} />, value: `${goalsDone}/${totalActionsInPlan}`, label: 'goals accomplished' },
+                { key: 'best', icon: <TrendingUp size={14} />, value: progress.bestMonth ? `${progress.bestMonth.pct}%` : '0%', label: progress.bestMonth ? `best month · ${progress.bestMonth.monthLabel}` : 'best month' },
+              ].map((s) => (
+                <div key={s.key} style={{ flex: '1 1 130px', padding: '12px 14px', borderRadius: 10, border: `1px solid ${PALETTE.line}`, background: 'rgba(255,255,255,0.35)' }}>
+                  <span style={{ color: PALETTE.berry }}>{s.icon}</span>
+                  <div data-stat={s.key} style={{ fontSize: '1.1rem', fontWeight: 700, marginTop: 8 }}>{s.value}</div>
+                  <div data-stat-label={s.key} style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: 2 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', opacity: 0.6 }}>Goals completed by month</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, marginTop: 12 }}>
+              {progress.monthStats.map((m) => (
+                <div key={m.monthNumber} style={{ textAlign: 'center' }}>
+                  <div data-stat-pct={m.monthNumber} style={{ fontSize: '1.3rem', fontWeight: 700, fontFamily: "'Fraunces', serif", color: m.pct >= 70 ? PALETTE.berry : PALETTE.ink }}>{m.pct}%</div>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 600, marginTop: 2 }}>{m.monthLabel}</div>
+                  <div data-stat-sub={m.monthNumber} style={{ fontSize: '0.72rem', opacity: 0.55 }}>{m.doneActions}/{m.totalActions} goals</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -830,12 +885,12 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
               const isOpen = openFaq === i
               return (
                 <div key={i} style={{ borderBottom: i < 2 ? '1px solid rgba(243,236,218,0.18)' : 'none' }}>
-                  <button onClick={() => setOpenFaq(isOpen ? null : i)}
+                  <button data-faq-trigger={i} onClick={() => setOpenFaq(isOpen ? null : i)}
                     style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '14px 0', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
                     <span style={{ color: PALETTE.cream, fontWeight: 600, fontSize: '0.95rem' }}>{q}</span>
                     {isOpen ? <ChevronDown size={16} color={PALETTE.gold1} style={{ flexShrink: 0 }} /> : <ChevronRight size={16} color={PALETTE.cream} opacity={0.5} style={{ flexShrink: 0 }} />}
                   </button>
-                  {isOpen && <div style={{ color: PALETTE.cream, opacity: 0.65, fontSize: '0.88rem', paddingBottom: 16 }}>{a}</div>}
+                  <div data-faq-body={i} style={{ display: isOpen ? 'block' : 'none', color: PALETTE.cream, opacity: 0.65, fontSize: '0.88rem', paddingBottom: 16 }}>{a}</div>
                 </div>
               )
             })}
