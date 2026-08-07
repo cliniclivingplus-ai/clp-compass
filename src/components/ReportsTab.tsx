@@ -9,7 +9,11 @@ const C = {
   faint: '#8A9284', line: '#ECEBE3', card: '#FFFFFF', danger: '#b4462f', dangerSoft: '#FBEBE6',
 }
 
-const REPORT_TYPES = ['Gut Microbiome', 'Blood Report', 'Hormone Panel', 'Supplement Prescription', 'Other']
+// Supplement Prescription isn't its own upload category — a coach only
+// ever gets one as the output of analyzing a Gut Microbiome report, never
+// as a standalone document, so keeping them as separate options was just
+// asking "which of these two identical things is this" every time.
+const REPORT_TYPES = ['Gut Microbiome / Supplement Plan', 'Blood Report', 'Other']
 
 type Supplement = { name: string; dose: string; timing: string; duration: string; notes: string }
 
