@@ -123,14 +123,21 @@ function KVGrid({ items, dark }: { items: string[]; dark?: boolean }) {
 
 // A tree that grows through 5 real stages as tracked adherence (pct,
 // 0-100) increases — replaces the reference design's fabricated schedule
-// wheel with something grounded in data this app actually has.
-function GrowthTree({ pct }: { pct: number }) {
-  const stage = pct >= 85 ? 4 : pct >= 60 ? 3 : pct >= 35 ? 2 : pct >= 10 ? 1 : 0
+// wheel with something grounded in data this app actually has. Renders all
+// 5 stages up front (only the current one visible via CSS) rather than just
+// the one matching today's pct, so the downloaded static file can switch
+// stages live as the patient checks off goals offline — a stage the SVG
+// was never rendered for in the first place can't be revealed by any
+// amount of vanilla JS after the fact.
+function stageForPct(pct: number): number {
+  return pct >= 85 ? 4 : pct >= 60 ? 3 : pct >= 35 ? 2 : pct >= 10 ? 1 : 0
+}
+function TreeStage({ stage, visible }: { stage: number; visible: boolean }) {
   const trunkH = 20 + stage * 15
   const canopyR = 8 + stage * 13
   const leafOn = stage >= 1
   return (
-    <svg width="220" height="240" viewBox="0 0 220 240" style={{ display: 'block', margin: '0 auto' }}>
+    <svg data-tree-stage={stage} width="220" height="240" viewBox="0 0 220 240" style={{ display: visible ? 'block' : 'none', margin: '0 auto' }}>
       <ellipse cx="110" cy="220" rx="70" ry="8" fill={PALETTE.ink} opacity="0.08" />
       <rect x="105" y={220 - trunkH} width="10" height={trunkH} rx="4" fill={PALETTE.dusk1} />
       {leafOn && (
@@ -147,6 +154,14 @@ function GrowthTree({ pct }: { pct: number }) {
       )}
       {stage === 0 && <circle cx="110" cy="216" r="5" fill={PALETTE.dusk2} />}
     </svg>
+  )
+}
+function GrowthTree({ pct }: { pct: number }) {
+  const stage = stageForPct(pct)
+  return (
+    <div data-growth-tree style={{ position: 'relative' }}>
+      {[0, 1, 2, 3, 4].map((s) => <TreeStage key={s} stage={s} visible={s === stage} />)}
+    </div>
   )
 }
 
@@ -351,8 +366,8 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <div style={{ margin: '2.5rem 0 0.5rem' }}>
             <GrowthTree pct={adherencePct} />
           </div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.6 }}>
-            {totalActionsInPlan > 0 ? `${GROWTH_LABELS[adherencePct >= 85 ? 4 : adherencePct >= 60 ? 3 : adherencePct >= 35 ? 2 : adherencePct >= 10 ? 1 : 0]} · ${goalsDone}/${totalActionsInPlan} goals tracked` : 'Your progress tree, check off goals in your plan to grow it'}
+          <div data-growth-caption style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.6 }}>
+            {totalActionsInPlan > 0 ? <>{GROWTH_LABELS[stageForPct(adherencePct)]} · <span data-goals-done>{goalsDone}</span>/{totalActionsInPlan} goals tracked</> : 'Your progress tree, check off goals in your plan to grow it'}
           </div>
           <button onClick={downloadDashboard} data-no-export
             style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 24, padding: '10px 20px', borderRadius: 24, border: 'none', background: PALETTE.berry, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
@@ -602,9 +617,11 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                         <div key={slot} style={{ marginBottom: 26 }}>
                           <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1, opacity: 0.85 }}>{SLOT_LABELS[slot]}</span>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginTop: 10 }}>
-                            {matches.map(({ recipe }) => (
-                              <button key={recipe.id} data-recipe-trigger={recipe.id} onClick={() => setOpenRecipeId(openRecipeId === recipe.id ? null : recipe.id)}
-                                style={{ textAlign: 'left', padding: 0, cursor: 'pointer', background: openRecipeId === recipe.id ? 'rgba(224,195,132,0.16)' : 'rgba(243,236,218,0.08)', border: `1px solid ${openRecipeId === recipe.id ? PALETTE.gold1 : 'rgba(243,236,218,0.22)'}`, borderRadius: 12, overflow: 'hidden' }}>
+                            {matches.map(({ recipe }) => {
+                              const recipeKey = `${w.week_number}-${slot}-${recipe.id}`
+                              return (
+                              <button key={recipeKey} data-recipe-trigger={recipeKey} onClick={() => setOpenRecipeId(openRecipeId === recipeKey ? null : recipeKey)}
+                                style={{ textAlign: 'left', padding: 0, cursor: 'pointer', background: openRecipeId === recipeKey ? 'rgba(224,195,132,0.16)' : 'rgba(243,236,218,0.08)', border: `1px solid ${openRecipeId === recipeKey ? PALETTE.gold1 : 'rgba(243,236,218,0.22)'}`, borderRadius: 12, overflow: 'hidden' }}>
                                 {recipe.image_url ? (
                                   <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', height: 100, objectFit: 'cover', display: 'block' }} />
                                 ) : (
@@ -614,10 +631,11 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                                 )}
                                 <div style={{ padding: '9px 11px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                                   <span style={{ color: PALETTE.cream, fontSize: '0.85rem', fontWeight: 600 }}>{recipe.name}</span>
-                                  {openRecipeId === recipe.id ? <ChevronDown size={14} color={PALETTE.gold1} style={{ flexShrink: 0 }} /> : <ChevronRight size={14} color={PALETTE.cream} opacity={0.5} style={{ flexShrink: 0 }} />}
+                                  {openRecipeId === recipeKey ? <ChevronDown size={14} color={PALETTE.gold1} style={{ flexShrink: 0 }} /> : <ChevronRight size={14} color={PALETTE.cream} opacity={0.5} style={{ flexShrink: 0 }} />}
                                 </div>
                               </button>
-                            ))}
+                              )
+                            })}
                           </div>
 
                           {/* Recipe detail — expands inline, right under the
@@ -626,8 +644,10 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                               always mounted (just hidden) so a downloaded
                               copy of this page has every recipe available,
                               not just whichever one happened to be open. */}
-                          {matches.map(({ recipe }) => (
-                            <div key={recipe.id} data-recipe-body={recipe.id} style={{ display: openRecipeId === recipe.id ? 'block' : 'none', marginTop: 14, background: 'rgba(243,236,218,0.06)', border: `1px solid ${PALETTE.gold1}`, borderRadius: 14, padding: '1.75rem', position: 'relative' }}>
+                          {matches.map(({ recipe }) => {
+                            const recipeKey = `${w.week_number}-${slot}-${recipe.id}`
+                            return (
+                            <div key={recipeKey} data-recipe-body={recipeKey} style={{ display: openRecipeId === recipeKey ? 'block' : 'none', marginTop: 14, background: 'rgba(243,236,218,0.06)', border: `1px solid ${PALETTE.gold1}`, borderRadius: 14, padding: '1.75rem', position: 'relative' }}>
                               <button onClick={() => setOpenRecipeId(null)} data-no-export style={{ position: 'absolute', top: 18, right: 18, background: 'none', border: 'none', cursor: 'pointer', color: PALETTE.cream, opacity: 0.6 }}><X size={18} /></button>
                               <div style={{ display: 'grid', gridTemplateColumns: recipe.image_url ? '1fr 1.3fr' : '1fr', gap: 24 }}>
                                 {recipe.image_url && <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', borderRadius: 10, objectFit: 'cover', maxHeight: 320 }} />}
@@ -657,7 +677,8 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                                 </div>
                               </div>
                             </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       ))}
                   </div>

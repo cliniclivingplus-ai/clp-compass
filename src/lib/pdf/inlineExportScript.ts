@@ -219,6 +219,55 @@ function renderProgressExport(){
   var contentEl = document.querySelector('[data-track-content]');
   if (emptyEl) emptyEl.style.display = totalDaysLogged === 0 ? 'block' : 'none';
   if (contentEl) contentEl.style.display = totalDaysLogged === 0 ? 'none' : 'block';
+
+  var adherencePct = totalActionsInPlan > 0 ? Math.round((goalsDone / totalActionsInPlan) * 100) : 0;
+  clpUpdateHero(adherencePct, goalsDone, totalActionsInPlan);
+}
+
+// Updates whichever hero centerpiece is present in this template's DOM
+// (Almanac's growing tree, Pulse's adherence ring, or Onyx's signature bar)
+// so it reflects the same real numbers "Track your progress" just did.
+// Every selector is null-checked because only one of these three hooks
+// exists in any given downloaded file — the other two are simply absent.
+var CLP_GROWTH_LABELS = ['Just planted', 'First sprout', 'Taking root', 'Growing strong', 'In full bloom'];
+function clpStageForPct(pct){ return pct >= 85 ? 4 : pct >= 60 ? 3 : pct >= 35 ? 2 : pct >= 10 ? 1 : 0; }
+function clpUpdateHero(pct, goalsDone, totalActionsInPlan){
+  document.querySelectorAll('[data-goals-done]').forEach(function(el){ el.textContent = goalsDone; });
+
+  // Almanac: pre-rendered tree stages, toggle which one is visible
+  var treeStages = document.querySelectorAll('[data-tree-stage]');
+  if (treeStages.length) {
+    var stage = clpStageForPct(pct);
+    treeStages.forEach(function(el){
+      el.style.display = (el.getAttribute('data-tree-stage') === String(stage)) ? 'block' : 'none';
+    });
+    var caption = document.querySelector('[data-growth-caption]');
+    if (caption && totalActionsInPlan > 0) {
+      caption.textContent = CLP_GROWTH_LABELS[stage] + ' · ' + goalsDone + '/' + totalActionsInPlan + ' goals tracked';
+    }
+  }
+
+  // Pulse: circular ring — read its own radius so the math always matches
+  // however the circle was actually drawn, rather than hardcoding size.
+  var ringFill = document.querySelector('[data-ring-fill]');
+  if (ringFill) {
+    var r = parseFloat(ringFill.getAttribute('r'));
+    var circumference = 2 * Math.PI * r;
+    ringFill.setAttribute('stroke-dasharray', String(circumference));
+    ringFill.setAttribute('stroke-dashoffset', String(circumference * (1 - pct / 100)));
+    var ringText = document.querySelector('[data-ring-pct-text]');
+    if (ringText) ringText.textContent = pct + '%';
+  }
+
+  // Onyx: thin fill bar + position dot + large percentage
+  var barFill = document.querySelector('[data-bar-fill]');
+  if (barFill) {
+    barFill.style.width = pct + '%';
+    var barDot = document.querySelector('[data-bar-dot]');
+    if (barDot) barDot.style.left = pct + '%';
+    var pctText = document.querySelector('[data-pct-text]');
+    if (pctText) pctText.textContent = pct;
+  }
 }
 
 initGroceryExport();

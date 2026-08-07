@@ -155,12 +155,12 @@ function SignatureBar({ pct, goalsDone, totalActionsInPlan }: { pct: number; goa
   return (
     <div style={{ width: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-        <span style={{ fontFamily: SERIF, fontSize: 42, fontWeight: 500, color: ONYX.ink }}>{pct}<span style={{ fontSize: 20, color: ONYX.accent }}>%</span></span>
-        {totalActionsInPlan > 0 && <span style={{ fontSize: 11, color: ONYX.muted, letterSpacing: '0.06em' }}>{goalsDone} / {totalActionsInPlan} GOALS TRACKED</span>}
+        <span style={{ fontFamily: SERIF, fontSize: 42, fontWeight: 500, color: ONYX.ink }}><span data-pct-text>{pct}</span><span style={{ fontSize: 20, color: ONYX.accent }}>%</span></span>
+        {totalActionsInPlan > 0 && <span style={{ fontSize: 11, color: ONYX.muted, letterSpacing: '0.06em' }}><span data-goals-done>{goalsDone}</span> / {totalActionsInPlan} GOALS TRACKED</span>}
       </div>
       <div style={{ height: 1, background: 'rgba(255,255,255,0.1)', position: 'relative' }}>
-        <div style={{ position: 'absolute', left: 0, top: 0, height: 1, width: `${pct}%`, background: ONYX.accent }} />
-        <div style={{ position: 'absolute', left: `${pct}%`, top: -3, width: 7, height: 7, borderRadius: '50%', background: ONYX.accent, transform: 'translateX(-50%)' }} />
+        <div data-bar-fill style={{ position: 'absolute', left: 0, top: 0, height: 1, width: `${pct}%`, background: ONYX.accent }} />
+        <div data-bar-dot style={{ position: 'absolute', left: `${pct}%`, top: -3, width: 7, height: 7, borderRadius: '50%', background: ONYX.accent, transform: 'translateX(-50%)' }} />
       </div>
     </div>
   )
@@ -501,9 +501,11 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
                         <div key={slot} style={{ marginBottom: 22 }}>
                           <span style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.muted }}>{SLOT_LABELS[slot]}</span>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginTop: 10 }}>
-                            {matches.map(({ recipe }) => (
-                              <button key={recipe.id} data-recipe-trigger={recipe.id} onClick={() => setOpenRecipeId(openRecipeId === recipe.id ? null : recipe.id)}
-                                style={{ textAlign: 'left', padding: 0, cursor: 'pointer', background: openRecipeId === recipe.id ? ONYX.accentSoft : ONYX.bg, border: `1px solid ${openRecipeId === recipe.id ? ONYX.accent : ONYX.border}`, borderRadius: 2, overflow: 'hidden' }}>
+                            {matches.map(({ recipe }) => {
+                              const recipeKey = `${w.week_number}-${slot}-${recipe.id}`
+                              return (
+                              <button key={recipeKey} data-recipe-trigger={recipeKey} onClick={() => setOpenRecipeId(openRecipeId === recipeKey ? null : recipeKey)}
+                                style={{ textAlign: 'left', padding: 0, cursor: 'pointer', background: openRecipeId === recipeKey ? ONYX.accentSoft : ONYX.bg, border: `1px solid ${openRecipeId === recipeKey ? ONYX.accent : ONYX.border}`, borderRadius: 2, overflow: 'hidden' }}>
                                 {recipe.image_url ? (
                                   <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', height: 96, objectFit: 'cover', display: 'block' }} />
                                 ) : (
@@ -513,14 +515,17 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
                                 )}
                                 <div style={{ padding: '9px 11px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                                   <span style={{ color: ONYX.ink, fontSize: '0.83rem', fontWeight: 600 }}>{recipe.name}</span>
-                                  {openRecipeId === recipe.id ? <ChevronDown size={14} color={ONYX.accent} style={{ flexShrink: 0 }} /> : <ChevronRight size={14} color={ONYX.muted} style={{ flexShrink: 0 }} />}
+                                  {openRecipeId === recipeKey ? <ChevronDown size={14} color={ONYX.accent} style={{ flexShrink: 0 }} /> : <ChevronRight size={14} color={ONYX.muted} style={{ flexShrink: 0 }} />}
                                 </div>
                               </button>
-                            ))}
+                              )
+                            })}
                           </div>
 
-                          {matches.map(({ recipe }) => (
-                            <div key={recipe.id} data-recipe-body={recipe.id} style={{ display: openRecipeId === recipe.id ? 'block' : 'none', marginTop: 14, background: ONYX.bg, border: `1px solid ${ONYX.accent}`, borderRadius: 2, padding: '1.5rem', position: 'relative' }}>
+                          {matches.map(({ recipe }) => {
+                            const recipeKey = `${w.week_number}-${slot}-${recipe.id}`
+                            return (
+                            <div key={recipeKey} data-recipe-body={recipeKey} style={{ display: openRecipeId === recipeKey ? 'block' : 'none', marginTop: 14, background: ONYX.bg, border: `1px solid ${ONYX.accent}`, borderRadius: 2, padding: '1.5rem', position: 'relative' }}>
                               <button onClick={() => setOpenRecipeId(null)} data-no-export style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', color: ONYX.muted }}><X size={18} /></button>
                               <div style={{ display: 'grid', gridTemplateColumns: recipe.image_url ? '1fr 1.3fr' : '1fr', gap: 22 }}>
                                 {recipe.image_url && <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', borderRadius: 2, objectFit: 'cover', maxHeight: 300 }} />}
@@ -550,7 +555,8 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
                                 </div>
                               </div>
                             </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       ))}
                   </div>

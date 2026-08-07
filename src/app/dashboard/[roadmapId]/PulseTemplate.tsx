@@ -143,11 +143,11 @@ function AdherenceRing({ pct, size = 132 }: { pct: number; size?: number }) {
   const circumference = 2 * Math.PI * r
   const offset = circumference * (1 - pct / 100)
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
+    <svg data-adherence-ring width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
       <circle cx={c} cy={c} r={r} fill="none" stroke={PULSE.border} strokeWidth={12} />
-      <circle cx={c} cy={c} r={r} fill="none" stroke={PULSE.accent} strokeWidth={12} strokeLinecap="round"
+      <circle data-ring-fill cx={c} cy={c} r={r} fill="none" stroke={PULSE.accent} strokeWidth={12} strokeLinecap="round"
         strokeDasharray={circumference} strokeDashoffset={offset} transform={`rotate(-90 ${c} ${c})`} />
-      <text x={c} y={c - 4} textAnchor="middle" fontSize={size * 0.19} fontWeight={800} fill={PULSE.ink} fontFamily="'Plus Jakarta Sans', sans-serif">{pct}%</text>
+      <text data-ring-pct-text x={c} y={c - 4} textAnchor="middle" fontSize={size * 0.19} fontWeight={800} fill={PULSE.ink} fontFamily="'Plus Jakarta Sans', sans-serif">{pct}%</text>
       <text x={c} y={c + 16} textAnchor="middle" fontSize={size * 0.075} fontWeight={700} letterSpacing="0.06em" fill={PULSE.muted} fontFamily="'Plus Jakarta Sans', sans-serif">ADHERENCE</text>
     </svg>
   )
@@ -341,7 +341,7 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
             <Eyebrow>Hi {firstName}</Eyebrow>
             <div style={{ fontSize: 24, fontWeight: 800, color: PULSE.ink, marginBottom: 6 }}>Here&apos;s your plan</div>
             <div style={{ fontSize: 13.5, color: PULSE.muted }}>{data.goalLabel}</div>
-            {totalActionsInPlan > 0 && <div style={{ fontSize: 12, color: PULSE.accentDeep, fontWeight: 700, marginTop: 10 }}>{goalsDone}/{totalActionsInPlan} goals tracked</div>}
+            {totalActionsInPlan > 0 && <div style={{ fontSize: 12, color: PULSE.accentDeep, fontWeight: 700, marginTop: 10 }}><span data-goals-done>{goalsDone}</span>/{totalActionsInPlan} goals tracked</div>}
           </div>
         </Card>
 
@@ -491,9 +491,11 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                         <div key={slot} style={{ marginBottom: 22 }}>
                           <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.muted }}>{SLOT_LABELS[slot]}</span>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginTop: 10 }}>
-                            {matches.map(({ recipe }) => (
-                              <button key={recipe.id} data-recipe-trigger={recipe.id} onClick={() => setOpenRecipeId(openRecipeId === recipe.id ? null : recipe.id)}
-                                style={{ textAlign: 'left', padding: 0, cursor: 'pointer', background: openRecipeId === recipe.id ? PULSE.accentSoft : PULSE.bg, border: `1px solid ${openRecipeId === recipe.id ? PULSE.accent : PULSE.border}`, borderRadius: 14, overflow: 'hidden' }}>
+                            {matches.map(({ recipe }) => {
+                              const recipeKey = `${w.week_number}-${slot}-${recipe.id}`
+                              return (
+                              <button key={recipeKey} data-recipe-trigger={recipeKey} onClick={() => setOpenRecipeId(openRecipeId === recipeKey ? null : recipeKey)}
+                                style={{ textAlign: 'left', padding: 0, cursor: 'pointer', background: openRecipeId === recipeKey ? PULSE.accentSoft : PULSE.bg, border: `1px solid ${openRecipeId === recipeKey ? PULSE.accent : PULSE.border}`, borderRadius: 14, overflow: 'hidden' }}>
                                 {recipe.image_url ? (
                                   <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', height: 96, objectFit: 'cover', display: 'block' }} />
                                 ) : (
@@ -503,14 +505,17 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                                 )}
                                 <div style={{ padding: '9px 11px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                                   <span style={{ color: PULSE.ink, fontSize: '0.83rem', fontWeight: 700 }}>{recipe.name}</span>
-                                  {openRecipeId === recipe.id ? <ChevronDown size={14} color={PULSE.accent} style={{ flexShrink: 0 }} /> : <ChevronRight size={14} color={PULSE.muted} style={{ flexShrink: 0 }} />}
+                                  {openRecipeId === recipeKey ? <ChevronDown size={14} color={PULSE.accent} style={{ flexShrink: 0 }} /> : <ChevronRight size={14} color={PULSE.muted} style={{ flexShrink: 0 }} />}
                                 </div>
                               </button>
-                            ))}
+                              )
+                            })}
                           </div>
 
-                          {matches.map(({ recipe }) => (
-                            <div key={recipe.id} data-recipe-body={recipe.id} style={{ display: openRecipeId === recipe.id ? 'block' : 'none', marginTop: 14, background: PULSE.bg, border: `1px solid ${PULSE.accent}`, borderRadius: 16, padding: '1.5rem', position: 'relative' }}>
+                          {matches.map(({ recipe }) => {
+                            const recipeKey = `${w.week_number}-${slot}-${recipe.id}`
+                            return (
+                            <div key={recipeKey} data-recipe-body={recipeKey} style={{ display: openRecipeId === recipeKey ? 'block' : 'none', marginTop: 14, background: PULSE.bg, border: `1px solid ${PULSE.accent}`, borderRadius: 16, padding: '1.5rem', position: 'relative' }}>
                               <button onClick={() => setOpenRecipeId(null)} data-no-export style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', color: PULSE.muted }}><X size={18} /></button>
                               <div style={{ display: 'grid', gridTemplateColumns: recipe.image_url ? '1fr 1.3fr' : '1fr', gap: 22 }}>
                                 {recipe.image_url && <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', borderRadius: 12, objectFit: 'cover', maxHeight: 300 }} />}
@@ -540,7 +545,8 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                                 </div>
                               </div>
                             </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       ))}
                   </div>
