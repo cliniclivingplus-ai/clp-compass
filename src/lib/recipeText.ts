@@ -12,5 +12,5 @@ export function splitRecipeLines(text: string): string[] {
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l && !PAGE_FOOTER.test(l))
-    .map((l) => l.replace(/^[•\-·]+\s*/, '').replace(/^\d+[.)]\s*/, ''))
+    .map((l) => l.replace(/^[•\-·�]+\s*/, '').replace(/^\d+[.)]\s*/, ''))
 }

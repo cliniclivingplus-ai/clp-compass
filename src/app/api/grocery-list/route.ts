@@ -44,7 +44,9 @@ Your jobs are to:
 1. Merge entries that are clearly the same real-world ingredient into one (keep the clearer/shorter name).
 2. Fix a category if it's clearly wrong.
 3. If an entry reads like a cooking instruction (contains an imperative verb like add/cook/heat/simmer/mix/stir/garnish/pressure cook, or a time/quantity like "10 minutes", "3 whistles") rather than a plain ingredient name, pull out just the real food name(s) it mentions and output those instead (e.g. "Add cashew nuts and peanuts" → "Cashew nuts" and "Peanuts"). If it names no real food at all, drop it.
-4. Drop an entry only if it names no real food/ingredient at all — never drop a real ingredient just because it was phrased oddly or wrapped in instruction text.
+4. Drop an entry that is a vague back-reference rather than a specific food ("remaining vegetables", "the rest of the spices") — nothing to actually shop for.
+5. Drop an entry that's a bare unit or nutrition-label word with no food attached — "water" (everyone has it, never a real shopping item), "powder" or "extract" alone (only a real product when paired with what it's made of, e.g. "protein powder" or "vanilla extract" — those stay), "kcal", "calories", "nutrition information".
+6. Drop an entry only if it names no real food/ingredient at all — never drop a real ingredient just because it was phrased oddly or wrapped in instruction text.
 
 Never invent an ingredient that isn't named somewhere in the input list — you may split one messy entry into the separate real ingredients it names, but you may not add anything not already present.
 

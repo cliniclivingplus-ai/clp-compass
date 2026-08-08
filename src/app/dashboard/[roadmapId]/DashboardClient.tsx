@@ -787,7 +787,10 @@ function toggleGoalExport(key, el){
   if (idx >= 0) { list.splice(idx, 1); newDone = false; }
   else { list.push({ week_number: week, action_index: action, checkin_date: dateStr }); newDone = true; }
   clpSetCheckins(list);
-  clpSetGoalVisual(el, newDone);
+  // The same goal appears once per day of the week (all showing the same
+  // underlying weekly goal) — update every matching row, not just the one
+  // clicked, so they never drift out of sync with each other.
+  document.querySelectorAll('[data-goal-toggle="' + key + '"]').forEach(function(row){ clpSetGoalVisual(row, newDone); });
   renderProgressExport();
 }
 function initGoalsExport(){

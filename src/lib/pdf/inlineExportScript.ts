@@ -1,17 +1,22 @@
 // Shared vanilla-JS "offline brain" for the downloaded static HTML of the
-// two inline-expansion templates (Almanac, Pulse) — both use the IDENTICAL
-// data-* attribute contract listed below, so one generator serves both
-// rather than duplicating ~200 lines of interaction logic per template.
+// three inline-expansion templates (Almanac, Pulse, Onyx) — all three use
+// the IDENTICAL data-* attribute contract listed below, so one generator
+// serves all of them rather than duplicating this logic per template.
 // Classic (DashboardClient.tsx) has its own separate, larger version of this
-// because it additionally has day-view/slot-view popups and a serving-size
-// scaler that these two templates don't.
+// because it additionally has a serving-size scaler these three don't, but
+// shares the same day/slot pattern (kept in sync by hand — see toggleDayExport
+// /openSlotExport/closeSlotExport there vs clpToggleDay/clpOpenSlot/clpCloseSlot here).
 //
 // Contract (all elements must already exist in the DOM, just hidden via
 // `display:none` — never conditionally unmounted, or a collapsed section
 // would be missing entirely from the downloaded snapshot):
 //   data-month-trigger / data-month-body        (value: monthNumber)
 //   data-week-trigger  / data-week-body          (value: week_number)
-//   data-recipe-trigger / data-recipe-body       (value: recipe id)
+//   data-day-trigger / data-day-body             (value: "week_number-DayName", e.g. "1-Sunday")
+//   data-slot-list                               (the meal-slot tile grid, one per week)
+//   data-slot-trigger / data-slot-body           (value: "week_number-slot", e.g. "1-breakfast")
+//   data-slot-back                               (returns from a slot's recipes to the tile grid)
+//   data-recipe-trigger / data-recipe-body       (value: recipe id, composite-keyed per week/slot)
 //   data-grocery-month-trigger / data-grocery-month-body   (value: monthNumber)
 //   data-grocery-week-trigger  / data-grocery-week-body    (value: week_number)
 //   data-meal-trigger / data-meal-body           (value: meal type)
@@ -95,11 +100,38 @@ function clpCloseGroup(bodyAttr, triggerAttr){
   document.querySelectorAll('[' + bodyAttr + ']').forEach(function(el){ el.style.display = 'none'; });
   if (triggerAttr) document.querySelectorAll('[' + triggerAttr + ']').forEach(function(el){ clpSetPillActive(el, false); });
 }
-function clpToggleMonth(id){ clpToggleGroup('data-month-trigger', 'data-month-body', id, function(){ clpCloseGroup('data-week-body', 'data-week-trigger'); clpCloseGroup('data-recipe-body'); }); }
-function clpToggleWeek(id){ clpToggleGroup('data-week-trigger', 'data-week-body', id, function(){ clpCloseGroup('data-recipe-body'); }); }
+function clpToggleMonth(id){ clpToggleGroup('data-month-trigger', 'data-month-body', id, function(){ clpCloseGroup('data-week-body', 'data-week-trigger'); clpCloseGroup('data-recipe-body'); clpCloseGroup('data-day-body'); clpCloseSlot(); }); }
+function clpToggleWeek(id){ clpToggleGroup('data-week-trigger', 'data-week-body', id, function(){ clpCloseGroup('data-recipe-body'); clpCloseGroup('data-day-body'); clpCloseSlot(); }); }
 function clpToggleRecipe(id){ clpToggleGroup('data-recipe-trigger', 'data-recipe-body', id); }
 function clpToggleGroceryMonth(id){ clpToggleGroup('data-grocery-month-trigger', 'data-grocery-month-body', id, function(){ clpCloseGroup('data-grocery-week-body', 'data-grocery-week-trigger'); }); }
 function clpToggleGroceryWeek(id){ clpToggleGroup('data-grocery-week-trigger', 'data-grocery-week-body', id); }
+
+// ── day accordion (Sunday–Saturday, same week content per day) — rotates
+// whichever chevron the trigger already rendered rather than swapping it,
+// same trick used everywhere else a static icon needs to flip open/closed
+// without React to re-render it ──
+function clpToggleDay(id, btn){
+  var body = document.querySelector('[data-day-body="' + id + '"]');
+  if (!body) return;
+  var isOpen = body.style.display === 'block';
+  document.querySelectorAll('[data-day-body]').forEach(function(el){ el.style.display = 'none'; });
+  document.querySelectorAll('[data-day-trigger] svg').forEach(function(el){ el.style.transform = ''; });
+  if (!isOpen) {
+    body.style.display = 'block';
+    if (btn) { var icon = btn.querySelector('svg'); if (icon) icon.style.transform = 'rotate(90deg)'; }
+  }
+}
+// ── meal-slot tiles → recipe grid for that slot, with a back button (not
+// an accordion — the tile grid is replaced by the slot's detail, not
+// expanded alongside it) ──
+function clpOpenSlot(id){
+  document.querySelectorAll('[data-slot-list]').forEach(function(el){ el.style.display = 'none'; });
+  document.querySelectorAll('[data-slot-body]').forEach(function(el){ el.style.display = (el.getAttribute('data-slot-body') === id) ? 'block' : 'none'; });
+}
+function clpCloseSlot(){
+  document.querySelectorAll('[data-slot-list]').forEach(function(el){ el.style.display = 'grid'; });
+  document.querySelectorAll('[data-slot-body]').forEach(function(el){ el.style.display = 'none'; });
+}
 
 // ── accordion groups (faq/care) — same single-open-at-a-time behavior, no pill restyle ──
 function clpToggleAccordion(triggerAttr, bodyAttr, id){
@@ -180,7 +212,11 @@ function toggleGoalExport(key, el){
   if (idx >= 0) { list.splice(idx, 1); done = false; }
   else { list.push({ week_number: week, action_index: action, checkin_date: dateStr }); done = true; }
   clpSetCheckins(list);
-  clpSetGoalVisual(el, done);
+  // The same goal can appear more than once on the page (one row per day
+  // of the week, all showing the same underlying weekly goal) — update
+  // every matching row, not just the one clicked, so they never drift out
+  // of sync with each other.
+  document.querySelectorAll('[data-goal-toggle="' + key + '"]').forEach(function(row){ clpSetGoalVisual(row, done); });
   renderProgressExport();
 }
 function initGoalsExport(){

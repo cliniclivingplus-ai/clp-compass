@@ -31,6 +31,7 @@ import { buildInlineExportScript } from '@/lib/pdf/inlineExportScript'
 
 const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert']
 const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks', dessert: 'Desserts' }
+const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner']
 
 const CARE_ICON_MAP: Record<string, LucideIcon> = {
@@ -188,6 +189,8 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
 
   const [openMonth, setOpenMonth] = useState<number | null>(null)
   const [openWeek, setOpenWeek] = useState<number | null>(null)
+  const [openDay, setOpenDay] = useState<string | null>(null)
+  const [openSlot, setOpenSlot] = useState<string | null>(null)
   const [openRecipeId, setOpenRecipeId] = useState<string | null>(null)
   const [tocOpen, setTocOpen] = useState(false)
 
@@ -297,6 +300,9 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
     clone.querySelectorAll('[data-hidden-section]').forEach((el) => el.remove())
     clone.querySelectorAll('[data-month-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleMonth('${el.getAttribute('data-month-trigger')}')`))
     clone.querySelectorAll('[data-week-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleWeek('${el.getAttribute('data-week-trigger')}')`))
+    clone.querySelectorAll('[data-day-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleDay('${el.getAttribute('data-day-trigger')}', this)`))
+    clone.querySelectorAll('[data-slot-trigger]').forEach((el) => el.setAttribute('onclick', `clpOpenSlot('${el.getAttribute('data-slot-trigger')}')`))
+    clone.querySelectorAll('[data-slot-back]').forEach((el) => el.setAttribute('onclick', 'clpCloseSlot()'))
     clone.querySelectorAll('[data-recipe-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleRecipe('${el.getAttribute('data-recipe-trigger')}')`))
     clone.querySelectorAll('[data-grocery-month-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleGroceryMonth('${el.getAttribute('data-grocery-month-trigger')}')`))
     clone.querySelectorAll('[data-grocery-week-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleGroceryWeek('${el.getAttribute('data-grocery-week-trigger')}')`))
@@ -482,7 +488,7 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
 
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 18 }}>
               {months.map((m) => (
-                <button key={m.monthNumber} data-month-trigger={m.monthNumber} onClick={() => { const next = openMonth === m.monthNumber ? null : m.monthNumber; setOpenMonth(next); setOpenWeek(null); setOpenRecipeId(null) }}
+                <button key={m.monthNumber} data-month-trigger={m.monthNumber} onClick={() => { const next = openMonth === m.monthNumber ? null : m.monthNumber; setOpenMonth(next); setOpenWeek(null); setOpenDay(null); setOpenSlot(null); setOpenRecipeId(null) }}
                   style={{
                     padding: '7px 15px', borderRadius: 2, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
                     border: `1px solid ${openMonth === m.monthNumber ? ONYX.accent : ONYX.border}`,
@@ -497,7 +503,7 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
               <div key={m.monthNumber} data-month-body={m.monthNumber} style={{ marginTop: 22, display: openMonth === m.monthNumber ? 'block' : 'none' }}>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
                   {m.weeks.map((w) => (
-                    <button key={w.week_number} data-week-trigger={w.week_number} onClick={() => { const next = openWeek === w.week_number ? null : w.week_number; setOpenWeek(next); setOpenRecipeId(null) }}
+                    <button key={w.week_number} data-week-trigger={w.week_number} onClick={() => { const next = openWeek === w.week_number ? null : w.week_number; setOpenWeek(next); setOpenDay(null); setOpenSlot(null); setOpenRecipeId(null) }}
                       style={{
                         textAlign: 'left', padding: '11px 15px', borderRadius: 2, cursor: 'pointer', minWidth: 150,
                         border: `1px solid ${openWeek === w.week_number ? ONYX.accent : ONYX.border}`,
@@ -513,87 +519,136 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
                   <div key={w.week_number} data-week-body={w.week_number} style={{ display: openWeek === w.week_number ? 'block' : 'none', borderTop: `1px solid ${ONYX.border}`, paddingTop: 20 }}>
                     {(w.actions?.length ?? 0) > 0 && (
                       <div style={{ marginBottom: 24 }}>
-                        <span style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.accent }}>This week&apos;s goals, tap one you&apos;ve done today</span>
-                        <ul style={{ listStyle: 'none', margin: '10px 0 0', padding: 0 }}>
-                          {(w.actions ?? []).map((action, ai) => {
-                            const checked = checkedSet.has(`${w.week_number}:${ai}:${today}`)
+                        <span style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.accent }}>Sunday to Saturday, this week&apos;s goals</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                          {DAY_LABELS.map((day) => {
+                            const dayId = `${w.week_number}-${day}`
+                            const isDayOpen = openDay === dayId
                             return (
-                              <li key={ai} data-goal-toggle={`${w.week_number}:${ai}`} onClick={() => toggleGoal(w.week_number, ai)}
-                                style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8, padding: '2px 0' }}>
-                                <span data-goal-icon-done style={{ display: checked ? 'inline-flex' : 'none', flexShrink: 0, marginTop: 2 }}><CheckCircle2 size={15} color={ONYX.accent} /></span>
-                                <span data-goal-icon-undone style={{ display: checked ? 'none' : 'inline-flex', flexShrink: 0, marginTop: 2 }}><Circle size={15} color={ONYX.muted} /></span>
-                                <span data-goal-text style={{ color: checked ? ONYX.muted : ONYX.inkSoft, fontSize: '0.9rem', lineHeight: 1.6, textDecoration: checked ? 'line-through' : 'none' }}>{action}</span>
-                              </li>
+                              <div key={day} style={{ border: `1px solid ${ONYX.border}`, borderRadius: 2, overflow: 'hidden' }}>
+                                <button data-day-trigger={dayId} onClick={() => setOpenDay(isDayOpen ? null : dayId)}
+                                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+                                  <span style={{ fontSize: '0.83rem', fontWeight: 600, color: ONYX.ink }}>{day}</span>
+                                  {isDayOpen ? <ChevronDown size={15} color={ONYX.accent} /> : <ChevronRight size={15} color={ONYX.muted} />}
+                                </button>
+                                <div data-day-body={dayId} style={{ display: isDayOpen ? 'block' : 'none', padding: '0 14px 14px' }}>
+                                  <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                                    {(w.actions ?? []).map((action, ai) => {
+                                      const checked = checkedSet.has(`${w.week_number}:${ai}:${today}`)
+                                      return (
+                                        <li key={ai} data-goal-toggle={`${w.week_number}:${ai}`} onClick={() => toggleGoal(w.week_number, ai)}
+                                          style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8, padding: '2px 0' }}>
+                                          <span data-goal-icon-done style={{ display: checked ? 'inline-flex' : 'none', flexShrink: 0, marginTop: 2 }}><CheckCircle2 size={15} color={ONYX.accent} /></span>
+                                          <span data-goal-icon-undone style={{ display: checked ? 'none' : 'inline-flex', flexShrink: 0, marginTop: 2 }}><Circle size={15} color={ONYX.muted} /></span>
+                                          <span data-goal-text style={{ color: checked ? ONYX.muted : ONYX.inkSoft, fontSize: '0.9rem', lineHeight: 1.6, textDecoration: checked ? 'line-through' : 'none' }}>{action}</span>
+                                        </li>
+                                      )
+                                    })}
+                                  </ul>
+                                </div>
+                              </div>
                             )
                           })}
-                        </ul>
+                        </div>
                       </div>
                     )}
 
-                    {getSlotRecipes(w.week_number, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, 'Picked for your plan.')
-                      .filter(({ matches }) => matches.length > 0)
-                      .map(({ slot, matches }) => (
-                        <div key={slot} style={{ marginBottom: 22 }}>
-                          <span style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.muted }}>{SLOT_LABELS[slot]}</span>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginTop: 10 }}>
-                            {matches.map(({ recipe }) => {
-                              const recipeKey = `${w.week_number}-${slot}-${recipe.id}`
+                    {(() => {
+                      const weekSlotRecipes = getSlotRecipes(w.week_number, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, 'Picked for your plan.')
+                      return (
+                        <div>
+                          <span style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.accent }}>Recipes for the week</span>
+                          <div data-slot-list style={{ display: openSlot == null ? 'grid' : 'none', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginTop: 10 }}>
+                            {weekSlotRecipes.map(({ slot, matches }) => {
+                              const slotId = `${w.week_number}-${slot}`
                               return (
-                              <button key={recipeKey} data-recipe-trigger={recipeKey} onClick={() => setOpenRecipeId(openRecipeId === recipeKey ? null : recipeKey)}
-                                style={{ textAlign: 'left', padding: 0, cursor: 'pointer', background: openRecipeId === recipeKey ? ONYX.accentSoft : ONYX.bg, border: `1px solid ${openRecipeId === recipeKey ? ONYX.accent : ONYX.border}`, borderRadius: 2, overflow: 'hidden' }}>
-                                {recipe.image_url ? (
-                                  <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', height: 96, objectFit: 'cover', display: 'block' }} />
-                                ) : (
-                                  <div style={{ width: '100%', height: 96, background: ONYX.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <ChefHat size={20} color={ONYX.accent} />
+                                <button key={slot} data-slot-trigger={slotId} onClick={() => setOpenSlot(slotId)}
+                                  style={{ textAlign: 'left', padding: '11px 13px', borderRadius: 2, cursor: 'pointer', border: `1px solid ${ONYX.border}`, background: ONYX.bg }}>
+                                  <div style={{ fontSize: '0.83rem', fontWeight: 600, color: ONYX.ink }}>{SLOT_LABELS[slot]}</div>
+                                  <div style={{ fontSize: '0.75rem', color: matches.length ? ONYX.accent : ONYX.muted, marginTop: 4, fontWeight: 600 }}>
+                                    {matches.length ? `${matches.length} recipe${matches.length === 1 ? '' : 's'}` : `Not detected yet, ${coachFirst} will add some.`}
                                   </div>
-                                )}
-                                <div style={{ padding: '9px 11px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                                  <span style={{ color: ONYX.ink, fontSize: '0.83rem', fontWeight: 600 }}>{recipe.name}</span>
-                                  {openRecipeId === recipeKey ? <ChevronDown size={14} color={ONYX.accent} style={{ flexShrink: 0 }} /> : <ChevronRight size={14} color={ONYX.muted} style={{ flexShrink: 0 }} />}
-                                </div>
-                              </button>
+                                </button>
                               )
                             })}
                           </div>
 
-                          {matches.map(({ recipe }) => {
-                            const recipeKey = `${w.week_number}-${slot}-${recipe.id}`
+                          {weekSlotRecipes.map(({ slot, matches }) => {
+                            const slotId = `${w.week_number}-${slot}`
                             return (
-                            <div key={recipeKey} data-recipe-body={recipeKey} style={{ display: openRecipeId === recipeKey ? 'block' : 'none', marginTop: 14, background: ONYX.bg, border: `1px solid ${ONYX.accent}`, borderRadius: 2, padding: '1.5rem', position: 'relative' }}>
-                              <button onClick={() => setOpenRecipeId(null)} data-no-export style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', color: ONYX.muted }}><X size={18} /></button>
-                              <div style={{ display: 'grid', gridTemplateColumns: recipe.image_url ? '1fr 1.3fr' : '1fr', gap: 22 }}>
-                                {recipe.image_url && <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', borderRadius: 2, objectFit: 'cover', maxHeight: 300 }} />}
-                                <div>
-                                  {recipe.protein_label && <Eyebrow>{recipe.protein_label}</Eyebrow>}
-                                  <h3 style={{ fontFamily: SERIF, fontSize: '1.3rem', fontWeight: 500, color: ONYX.ink, margin: '0 0 14px' }}>{recipe.name}</h3>
-                                  <span style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.accent }}>Ingredients</span>
-                                  <ul style={{ listStyle: 'none', margin: '8px 0 14px', padding: 0 }}>
-                                    {splitRecipeLines(recipe.ingredients).map((line, i) => (
-                                      <li key={i} style={{ color: ONYX.inkSoft, fontSize: '0.86rem', lineHeight: 1.6, marginBottom: 4 }}>{line}</li>
-                                    ))}
-                                  </ul>
-                                  <span style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.accent }}>Directions</span>
-                                  <ol style={{ margin: '8px 0 0', paddingLeft: 20 }}>
-                                    {splitRecipeLines(recipe.steps).map((line, i) => (
-                                      <li key={i} style={{ color: ONYX.inkSoft, fontSize: '0.86rem', lineHeight: 1.65, marginBottom: 6 }}>{line}</li>
-                                    ))}
-                                  </ol>
-                                  {recipe.benefits && recipe.benefits.length > 0 && (
-                                    <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${ONYX.border}` }}>
-                                      <span style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.accent }}>Why it works</span>
-                                      <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0 }}>
-                                        {recipe.benefits.map((b, i) => <li key={i} style={{ color: ONYX.inkSoft, fontSize: '0.84rem', lineHeight: 1.55, marginBottom: 4 }}>{b}</li>)}
-                                      </ul>
-                                    </div>
-                                  )}
+                            <div key={slot} data-slot-body={slotId} style={{ display: openSlot === slotId ? 'block' : 'none', marginTop: 14 }}>
+                              <button data-slot-back onClick={() => setOpenSlot(null)}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: ONYX.accent, fontSize: '0.78rem', fontWeight: 700, padding: 0, marginBottom: 12 }}>
+                                ← Back to meal slots
+                              </button>
+                              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: ONYX.ink, marginBottom: 10 }}>{SLOT_LABELS[slot]}, picked for your plan</div>
+                              {matches.length > 0 ? (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                                  {matches.map(({ recipe }) => {
+                                    const recipeKey = `${w.week_number}-${slot}-${recipe.id}`
+                                    return (
+                                    <button key={recipeKey} data-recipe-trigger={recipeKey} onClick={() => setOpenRecipeId(openRecipeId === recipeKey ? null : recipeKey)}
+                                      style={{ textAlign: 'left', padding: 0, cursor: 'pointer', background: openRecipeId === recipeKey ? ONYX.accentSoft : ONYX.bg, border: `1px solid ${openRecipeId === recipeKey ? ONYX.accent : ONYX.border}`, borderRadius: 2, overflow: 'hidden' }}>
+                                      {recipe.image_url ? (
+                                        <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', height: 96, objectFit: 'cover', display: 'block' }} />
+                                      ) : (
+                                        <div style={{ width: '100%', height: 96, background: ONYX.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                          <ChefHat size={20} color={ONYX.accent} />
+                                        </div>
+                                      )}
+                                      <div style={{ padding: '9px 11px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                                        <span style={{ color: ONYX.ink, fontSize: '0.83rem', fontWeight: 600 }}>{recipe.name}</span>
+                                        {openRecipeId === recipeKey ? <ChevronDown size={14} color={ONYX.accent} style={{ flexShrink: 0 }} /> : <ChevronRight size={14} color={ONYX.muted} style={{ flexShrink: 0 }} />}
+                                      </div>
+                                    </button>
+                                    )
+                                  })}
                                 </div>
-                              </div>
+                              ) : (
+                                <div style={{ fontSize: '0.83rem', color: ONYX.muted }}>Nothing detected for {SLOT_LABELS[slot].toLowerCase()} yet, {coachFirst} will add some.</div>
+                              )}
+
+                              {matches.map(({ recipe }) => {
+                                const recipeKey = `${w.week_number}-${slot}-${recipe.id}`
+                                return (
+                                <div key={recipeKey} data-recipe-body={recipeKey} style={{ display: openRecipeId === recipeKey ? 'block' : 'none', marginTop: 14, background: ONYX.bg, border: `1px solid ${ONYX.accent}`, borderRadius: 2, padding: '1.5rem', position: 'relative' }}>
+                                  <button onClick={() => setOpenRecipeId(null)} data-no-export style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', color: ONYX.muted }}><X size={18} /></button>
+                                  <div style={{ display: 'grid', gridTemplateColumns: recipe.image_url ? '1fr 1.3fr' : '1fr', gap: 22 }}>
+                                    {recipe.image_url && <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', borderRadius: 2, objectFit: 'cover', maxHeight: 300 }} />}
+                                    <div>
+                                      {recipe.protein_label && <Eyebrow>{recipe.protein_label}</Eyebrow>}
+                                      <h3 style={{ fontFamily: SERIF, fontSize: '1.3rem', fontWeight: 500, color: ONYX.ink, margin: '0 0 14px' }}>{recipe.name}</h3>
+                                      <span style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.accent }}>Ingredients</span>
+                                      <ul style={{ listStyle: 'none', margin: '8px 0 14px', padding: 0 }}>
+                                        {splitRecipeLines(recipe.ingredients).map((line, i) => (
+                                          <li key={i} style={{ color: ONYX.inkSoft, fontSize: '0.86rem', lineHeight: 1.6, marginBottom: 4 }}>{line}</li>
+                                        ))}
+                                      </ul>
+                                      <span style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.accent }}>Directions</span>
+                                      <ol style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+                                        {splitRecipeLines(recipe.steps).map((line, i) => (
+                                          <li key={i} style={{ color: ONYX.inkSoft, fontSize: '0.86rem', lineHeight: 1.65, marginBottom: 6 }}>{line}</li>
+                                        ))}
+                                      </ol>
+                                      {recipe.benefits && recipe.benefits.length > 0 && (
+                                        <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${ONYX.border}` }}>
+                                          <span style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.accent }}>Why it works</span>
+                                          <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0 }}>
+                                            {recipe.benefits.map((b, i) => <li key={i} style={{ color: ONYX.inkSoft, fontSize: '0.84rem', lineHeight: 1.55, marginBottom: 4 }}>{b}</li>)}
+                                          </ul>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                                )
+                              })}
                             </div>
                             )
                           })}
                         </div>
-                      ))}
+                      )
+                    })()}
                   </div>
                 ))}
               </div>

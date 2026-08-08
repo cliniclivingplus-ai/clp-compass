@@ -22,8 +22,23 @@ const CATEGORY_KEYWORDS: { head: string; keywords: string[] }[] = [
   { head: 'Grains & millets', keywords: ['oat', 'rice', 'ragi', 'jowar', 'bajra', 'quinoa', 'buckwheat', 'amaranth', 'millet', 'barley', 'wheat', 'flour', 'bread', 'pasta', 'noodle', 'spaghetti', 'tortilla', 'breadcrumb'] },
   { head: 'Lentils & protein', keywords: ['moong', 'masoor', 'chana', 'toor dal', 'dal', 'rajma', 'tofu', 'tempeh', 'edamame', 'sprout', 'hummus', 'lentil', 'chickpea', 'bean', 'egg', 'chicken', 'fish', 'salmon', 'prawn', 'steak', 'bacon', 'paneer', 'yogurt', 'yoghurt', 'curd', 'milk', 'cheese'] },
   { head: 'Nuts & seeds', keywords: ['almond', 'walnut', 'brazil nut', 'chia', 'flaxseed', 'flax seed', 'pumpkin seed', 'sesame', 'sunflower seed', 'cashew', 'pistachio', 'tahini'] },
-  { head: 'Herbs, spices & pantry', keywords: ['cinnamon', 'turmeric', 'cumin', 'coriander', 'mint', 'basil', 'pepper', 'salt', 'honey', 'vinegar', 'oil', 'coconut', 'vanilla', 'cardamom', 'clove', 'bay leaf', 'mustard seed', 'curry leaf', 'chili', 'chilli', 'paprika', 'oregano', 'stock', 'sweetener', 'sauce', 'pesto', 'sugar', 'baking powder', 'cocoa'] },
+  { head: 'Herbs, spices & pantry', keywords: ['cinnamon', 'turmeric', 'cumin', 'coriander', 'mint', 'basil', 'pepper', 'salt', 'honey', 'vinegar', 'oil', 'coconut', 'vanilla', 'cardamom', 'clove', 'bay leaf', 'mustard seed', 'curry leaf', 'chili', 'chilli', 'paprika', 'oregano', 'stock', 'sweetener', 'sauce', 'pesto', 'sugar', 'baking powder', 'cocoa', 'fennel', 'asafoetida', 'jeera', 'seasoning', 'tamari', 'spirulina', 'matcha'] },
 ]
+
+// Vague back-references to something already mentioned elsewhere in the
+// recipe ("remaining vegetables", "the rest of the spices") rather than a
+// specific food — never a real thing to add to a shopping list, so these
+// are dropped outright regardless of how they were phrased.
+const VAGUE_REFERENCE = /^(remaining|rest of|leftover)\b/i
+
+// Bare words that survive the general cleanup below but never mean
+// anything as a standalone shopping item — either a unit of measure with
+// no food attached ("water", "powder" left over from a wrapped ingredient
+// line), or nutrition-label text that leaked in from a recipe card's
+// calorie panel ("kcal", "nutrition information"). Matched only after full
+// cleanup, so "chia powder" or "protein powder" (a real product) still
+// passes through fine — only the bare, qualifier-less word is dropped.
+const JUNK_ITEM_NAMES = new Set(['water', 'powder', 'ream', 'mixture', 'extract', 'kcal', 'calorie', 'calories', 'carb', 'carbs', 'protein', 'fat', 'fats', 'fiber', 'nutrition', 'nutrition information', 'ingredient', 'ingredients'])
 
 // Words describing how to prep or package an ingredient, not what it is —
 // they don't change what a patient needs to buy, so they're stripped rather
@@ -58,7 +73,7 @@ const ALL_CAPS_HEADER = /^[A-Z][A-Z\s\-]+$/
 // (starts with an imperative/temporal marker, ends with a period). Never
 // invents a name — only ever trims a line down to its real-ingredient
 // prefix, or drops a line that names no ingredient at all.
-const INSTRUCTION_START = /^(add|cook|heat|mix|boil|simmer|saut[eé]|roast|bake|garnish|drain|rinse|soak|transfer|grind|blend|crackle|temper|roll|cover|crush|whisk|fold|marinate|dry\s+roast|pressure\s+cook|preheat|pre-heat|combine|toast|plate|serve|repeat|once|then|now|next|in\s+a|in\s+the|for\s+the)\b/i
+const INSTRUCTION_START = /^(add|cook|heat|mix|boil|simmer|saut[eé]|roast|bake|garnish|drain|rinse|soak|transfer|grind|blend|crackle|temper|roll|cover|crush|whisk|fold|marinate|sprinkle|dry\s+roast|pressure\s+cook|preheat|pre-heat|combine|toast|plate|serve|repeat|once|then|now|next|in\s+a|in\s+the|for\s+the)\b/i
 const ENDS_LIKE_A_SENTENCE = /[.!]\s*$/
 // A run of 2+ spaces mid-line is a leftover column gap from a two-column
 // layout — the real ingredient is reliably on the left of it.
@@ -105,16 +120,22 @@ function singularizeWord(word: string): string {
 
 function extractItemName(line: string): string {
   let s = line.trim()
-  // A bad-encoding replacement character (�) shows up where a bullet or a
-  // fraction glyph (½, etc.) should be in some source PDFs — it carries no
-  // recoverable meaning, so it's dropped rather than shown to the patient.
-  s = s.replace(/�/g, ' ').replace(/\s+/g, ' ').trim()
   if (ALL_CAPS_HEADER.test(s) && s.length >= 3) return ''
   // "STIR-FRY VEGETABLES: 1 large carrot" / "Optional Toppings: Banana" —
   // the label before the colon is a heading, the real ingredient follows it.
   if (s.includes(':')) s = s.slice(s.lastIndexOf(':') + 1).trim()
+  // Column-gap detection below depends on runs of real whitespace between
+  // the real ingredient and a leaked second column — a bad-encoding
+  // replacement character (�, showing up where a bullet or fraction glyph
+  // like ½ should be) sometimes sits inside that gap, so it must be
+  // resolved AFTER the gap is found, not before, or collapsing it first
+  // would erase the very whitespace run the gap detector looks for.
   s = stripLeakedInstructionText(s)
   if (!s) return ''
+  if (VAGUE_REFERENCE.test(s)) return ''
+  // Now safe to drop the replacement character — it carries no recoverable
+  // meaning, so it's dropped rather than shown to the patient.
+  s = s.replace(/�/g, ' ').replace(/\s+/g, ' ').trim()
   // A "(" with no matching ")" on this line means the parenthetical wraps
   // onto the next physical line in the source PDF — the closing half is
   // handled separately (buildGroceryList skips the continuation line(s)),
@@ -122,7 +143,12 @@ function extractItemName(line: string): string {
   s = s.replace(/\([^)]*$/, '').trim()
   s = s.replace(/\([^)]*\)/g, '')
   s = s.split(',')[0]
-  s = s.replace(/\bto taste\b/gi, '')
+  // "to taste" / "as needed" / "as per taste" / "as required" / "if needed"
+  // etc. are all the same non-quantity notation worded differently —
+  // stripping all of them the same way means "Salt to taste", "Salt as
+  // needed", and "Salt as per taste" collapse into one "Salt" instead of
+  // showing as three near-duplicate lines.
+  s = s.replace(/\b(to taste|as (?:needed|required|desired|per taste)|if needed|for taste)\b/gi, '')
 
   // Quantities/units can stack ("1 x 15.5oz can") — strip leading ones in a
   // loop until nothing more matches, rather than assuming just one.
@@ -149,7 +175,20 @@ function extractItemName(line: string): string {
     s = words.join(' ')
   }
   s = s.split(' ').map((w) => SPELLING_VARIANTS[w] || w).join(' ')
+  if (JUNK_ITEM_NAMES.has(s)) return ''
   return s
+}
+
+// "Salt and pepper" / "Salt & pepper" almost always means two separate
+// things to buy, each of which usually already appears on its own
+// elsewhere in the list — split so they merge into those instead of
+// sitting alongside them as a near-duplicate combined line. "or" is left
+// alone ("blueberries or strawberries" is a real either/or choice, not two
+// items to buy).
+function splitAndJoinedItems(name: string): string[] {
+  if (!name) return []
+  const parts = name.split(/\s*&\s*|\s+and\s+/i).map((p) => p.trim()).filter(Boolean)
+  return parts.length > 0 ? parts : [name]
 }
 
 function titleCase(s: string): string {
@@ -184,13 +223,14 @@ export function buildGroceryList(recipes: { ingredients: string }[]): GroceryCat
       const opens = (line.match(/\(/g) || []).length
       const closes = (line.match(/\)/g) || []).length
       if (opens > closes) insideWrappedParen = true
-      const name = extractItemName(line)
-      if (!name || name.length < 2) continue
-      const display = titleCase(name)
-      const key = name
-      const head = categorize(name)
-      if (!buckets.has(head)) buckets.set(head, new Map())
-      buckets.get(head)!.set(key, display)
+      for (const name of splitAndJoinedItems(extractItemName(line))) {
+        if (!name || name.length < 2) continue
+        const display = titleCase(name)
+        const key = name
+        const head = categorize(name)
+        if (!buckets.has(head)) buckets.set(head, new Map())
+        buckets.get(head)!.set(key, display)
+      }
     }
   }
   return GROCERY_CATEGORY_ORDER
