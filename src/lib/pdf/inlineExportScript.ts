@@ -25,22 +25,27 @@
 //   data-track-empty / data-track-content
 
 type MonthExportData = { monthNumber: number; monthLabel: string; weeks: { week_number: number; totalActions: number }[] }
-type Checkin = { week_number: number; action_index: number; checkin_date: string }
 
 export function buildInlineExportScript(opts: {
   roadmapId: string
-  checkins: Checkin[]
   monthsData: MonthExportData[]
   colors: { ink: string; inkSoft: string; muted: string; accent: string; accentSoft: string; border: string; onAccent: string }
 }): string {
-  const { roadmapId, checkins, monthsData, colors: C } = opts
-  const checkinsJson = JSON.stringify(checkins).replace(/</g, '\\u003c')
+  const { roadmapId, monthsData, colors: C } = opts
   const monthsJson = JSON.stringify(monthsData).replace(/</g, '\\u003c')
   return `
 var CLP_ROADMAP_ID = '${roadmapId}';
-var CLP_STORAGE_KEY = 'clp-checkins-' + CLP_ROADMAP_ID;
-var CLP_GROCERY_KEY = 'clp-grocery-' + CLP_ROADMAP_ID;
-var CLP_BASE_CHECKINS = ${checkinsJson};
+// Every download is its own fresh copy — a per-download id (not just the
+// roadmap id) namespaces localStorage so re-downloading the plan (which
+// commonly overwrites the same filename, and can land on the same
+// file:// origin) never inherits progress from a previous download that
+// happened to share a browser profile. Re-opening THIS same downloaded
+// file later still remembers its own progress correctly, since this id is
+// baked in once at download time and stays fixed for that file.
+var CLP_DOWNLOAD_ID = '${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}';
+var CLP_STORAGE_KEY = 'clp-checkins-' + CLP_ROADMAP_ID + '-' + CLP_DOWNLOAD_ID;
+var CLP_GROCERY_KEY = 'clp-grocery-' + CLP_ROADMAP_ID + '-' + CLP_DOWNLOAD_ID;
+var CLP_BASE_CHECKINS = [];
 var CLP_MONTHS = ${monthsJson};
 function clpGetCheckins(){
   try {

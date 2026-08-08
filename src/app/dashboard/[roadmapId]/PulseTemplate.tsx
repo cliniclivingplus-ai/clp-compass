@@ -21,7 +21,7 @@ import { getSlotRecipes } from '@/lib/pdf/weekRecipes'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 import { splitRecipeLines } from '@/lib/recipeText'
 import { FOOD_PLATES, GROCERY_CATEGORIES, type MealType } from '@/lib/foodPlates'
-import { buildGroceryList } from '@/lib/groceryList'
+import { buildGroceryList, type GroceryCategory } from '@/lib/groceryList'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
 import { buildInlineExportScript } from '@/lib/pdf/inlineExportScript'
 
@@ -221,6 +221,7 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
 
   const [openGroceryMonth, setOpenGroceryMonth] = useState<number | null>(null)
   const [openGroceryWeek, setOpenGroceryWeek] = useState<number | null>(null)
+  const [aiGroceryCache, setAiGroceryCache] = useState<Record<number, GroceryCategory[]>>({})
 
   const [boughtItems, setBoughtItems] = useState<Set<string>>(new Set())
   const groceryStorageKey = `clp-grocery-${roadmapId}`
@@ -239,6 +240,29 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
       return next
     })
   }
+
+  // The regex cleanup in groceryList.ts is instant but rule-based — an AI
+  // pass catches what fixed rules can't (spelling variants, oddly-worded
+  // duplicates, better categorization, and instruction text that leaked
+  // into the ingredients field from two-column source PDFs). Fetched lazily
+  // per week (only once, cached) so opening a week's list is never blocked
+  // on it — the regex-based list shows immediately and this quietly
+  // replaces it when ready, or stays as-is if the call fails.
+  useEffect(() => {
+    if (openGroceryWeek == null || aiGroceryCache[openGroceryWeek]) return
+    const weekRecipes = getSlotRecipes(openGroceryWeek, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, 'Picked for your plan.').flatMap((s) => s.matches).map((mm) => mm.recipe)
+    const candidateItems = buildGroceryList(weekRecipes).flatMap((cat) => cat.items.map((name) => ({ name, category: cat.head })))
+    if (candidateItems.length === 0) return
+    let cancelled = false
+    fetch('/api/grocery-list', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: candidateItems }) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled || !j || !Array.isArray(j.categories) || j.categories.length === 0) return
+        setAiGroceryCache((prev) => ({ ...prev, [openGroceryWeek]: j.categories }))
+      })
+      .catch(() => { /* keep the regex-based list on failure */ })
+    return () => { cancelled = true }
+  }, [openGroceryWeek, aiGroceryCache, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank])
 
   const [openService, setOpenService] = useState<number | null>(null)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
@@ -281,7 +305,7 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
 
     const monthsData = months.map((m) => ({ monthNumber: m.monthNumber, monthLabel: m.monthLabel, weeks: m.weeks.map((w) => ({ week_number: w.week_number, totalActions: w.actions?.length ?? 0 })) }))
     const script = buildInlineExportScript({
-      roadmapId, checkins, monthsData,
+      roadmapId, monthsData,
       colors: { ink: PULSE.ink, inkSoft: PULSE.inkSoft, muted: PULSE.muted, accent: PULSE.accent, accentSoft: PULSE.accentSoft, border: PULSE.border, onAccent: '#fff' },
     })
     const title = (data.patient?.full_name || 'Your') + "'s Plan, Clinic Living Plus"
@@ -688,7 +712,7 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                   </div>
                   {m.weeks.map((w) => {
                     const weekRecipes = getSlotRecipes(w.week_number, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, 'Picked for your plan.').flatMap((s) => s.matches).map((mm) => mm.recipe)
-                    const cats = buildGroceryList(weekRecipes)
+                    const cats = aiGroceryCache[w.week_number] ?? buildGroceryList(weekRecipes)
                     const finalCats = cats.length > 0 ? cats : GROCERY_CATEGORIES
                     return (
                       <div key={w.week_number} data-grocery-week-body={w.week_number} style={{ display: openGroceryWeek === w.week_number ? 'grid' : 'none', borderTop: `1px solid ${PULSE.border}`, paddingTop: 18, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 18 }}>

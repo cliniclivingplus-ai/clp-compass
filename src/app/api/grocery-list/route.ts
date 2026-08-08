@@ -11,11 +11,13 @@ const MAX_ITEMS = 200
 // raw recipe ingredient lines into a candidate {name, category} list — fast,
 // deterministic, and the instant fallback shown while this call is in
 // flight. Sending its (already deduplicated, already shortened) output here
-// instead of the raw ingredient lines keeps the prompt small and reliable;
-// this pass just catches what fixed rules can't (spelling variants, oddly
-// worded near-duplicates, better categorization) — it reviews and merges,
-// it doesn't re-extract from scratch, so it can't invent an item that
-// wasn't already a candidate.
+// instead of the raw ingredient lines keeps the prompt small and reliable.
+// Some source PDFs had a two-column layout (ingredients beside directions)
+// that the extractor read row-by-row, so a handful of candidates are really
+// a whole instruction sentence with a real ingredient buried inside it
+// (e.g. "Add cashew nuts and peanuts", "Pressure cook soaked chole until
+// soft") rather than a clean ingredient name — this pass is also the one
+// place that untangles those, pulling out just the real food name.
 export async function POST(req: NextRequest) {
   const body = await req.json()
   const candidates: { name: string; category: string }[] = Array.isArray(body.items)
@@ -36,14 +38,15 @@ export async function POST(req: NextRequest) {
     messages: [
       {
         role: 'system',
-        content: `You are given a candidate grocery shopping list already extracted from a patient's recipes, one item per line as "name (category)". It has already had quantities/units/prep-instructions stripped, but may still contain: near-duplicates or synonyms of the same real ingredient worded differently ("garlic" and "garlic clove"), spelling variants ("chilli"/"chilly"), or an item filed under the wrong category.
+        content: `You are given a candidate grocery shopping list already extracted from a patient's recipes, one item per line as "name (category)". It has already had quantities/units/prep-instructions stripped, but may still contain: near-duplicates or synonyms of the same real ingredient worded differently ("garlic" and "garlic clove"), spelling variants ("chilli"/"chilly"), an item filed under the wrong category, or — because some source PDFs had ingredients and cooking directions in side-by-side columns that got merged during extraction — a whole instruction sentence with a real ingredient buried inside it (e.g. "Add cashew nuts and peanuts", "Pressure cook soaked chole until soft", "Cover the lid and simmer for 10 minutes").
 
-You MUST include every distinct real ingredient from the input in your output — do not drop or skip any of them. Your only jobs are to:
+Your jobs are to:
 1. Merge entries that are clearly the same real-world ingredient into one (keep the clearer/shorter name).
 2. Fix a category if it's clearly wrong.
-3. Drop an entry only if it is not a real food/ingredient at all (leftover junk text, not a legitimate but oddly-named ingredient).
+3. If an entry reads like a cooking instruction (contains an imperative verb like add/cook/heat/simmer/mix/stir/garnish/pressure cook, or a time/quantity like "10 minutes", "3 whistles") rather than a plain ingredient name, pull out just the real food name(s) it mentions and output those instead (e.g. "Add cashew nuts and peanuts" → "Cashew nuts" and "Peanuts"). If it names no real food at all, drop it.
+4. Drop an entry only if it names no real food/ingredient at all — never drop a real ingredient just because it was phrased oddly or wrapped in instruction text.
 
-Never invent an ingredient that isn't already in the input list. The output item count should be close to the input count (fewer only where you genuinely merged duplicates) — a much shorter output than input is a sign you dropped real items, which is not allowed.
+Never invent an ingredient that isn't named somewhere in the input list — you may split one messy entry into the separate real ingredients it names, but you may not add anything not already present.
 
 Valid categories: ${GROCERY_CATEGORY_ORDER.join(', ')}.
 

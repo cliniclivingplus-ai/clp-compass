@@ -460,21 +460,27 @@ function StatCard({ icon, value, label, color, dataStat, dataStatLabel }: {
 // export via the plain-JS equivalents injected in downloadDashboard().
 type MonthExportData = { monthNumber: number; monthLabel: string; weeks: { week_number: number; totalActions: number }[] }
 
-function buildExportScript(roadmapId: string, checkins: Checkin[], monthsData: MonthExportData[]): string {
+function buildExportScript(roadmapId: string, monthsData: MonthExportData[]): string {
   // A personal checklist for the patient's own copy of the file — never
-  // synced anywhere, not visible to the coach. Embedded once at download
-  // time as the starting dataset; every toggle after that reads/writes the
-  // SAME shape (a plain Checkin[] list) in localStorage (namespaced by
-  // roadmapId so multiple downloaded files don't collide in one browser),
-  // so "Track your progress" and the week/month tiles can be fully
-  // recomputed client-side with the exact same logic the live React
+  // synced anywhere, not visible to the coach. Every download always
+  // starts this at zero (never the patient's real tracked progress), and
+  // every toggle after that reads/writes a plain Checkin[] list in
+  // localStorage, so "Track your progress" and the week/month tiles can be
+  // fully recomputed client-side with the exact same logic the live React
   // page uses — not just a single icon flipped in isolation.
-  const checkinsJson = JSON.stringify(checkins).replace(/</g, '\\u003c')
   const monthsJson = JSON.stringify(monthsData).replace(/</g, '\\u003c')
   return `
 var CLP_ROADMAP_ID = '${roadmapId}';
-var CLP_STORAGE_KEY = 'clp-checkins-' + CLP_ROADMAP_ID;
-var CLP_BASE_CHECKINS = ${checkinsJson};
+// Every download is its own fresh copy — a per-download id (not just the
+// roadmap id) namespaces localStorage so re-downloading the plan (which
+// commonly overwrites the same filename, and can land on the same
+// file:// origin) never inherits progress from a previous download that
+// happened to share a browser profile. Re-opening THIS same downloaded
+// file later still remembers its own progress correctly, since this id is
+// baked in once at download time and stays fixed for that file.
+var CLP_DOWNLOAD_ID = '${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}';
+var CLP_STORAGE_KEY = 'clp-checkins-' + CLP_ROADMAP_ID + '-' + CLP_DOWNLOAD_ID;
+var CLP_BASE_CHECKINS = [];
 var CLP_MONTHS = ${monthsJson};
 function clpGetCheckins(){
   try {
@@ -652,7 +658,7 @@ function closeGroceryWeekExport(){
 // "Bought" checkboxes are a personal shopping checklist — same "never
 // synced, localStorage only" treatment as the goal checkboxes above, just
 // under their own storage key so the two lists can't collide.
-var CLP_GROCERY_KEY = 'clp-grocery-' + CLP_ROADMAP_ID;
+var CLP_GROCERY_KEY = 'clp-grocery-' + CLP_ROADMAP_ID + '-' + CLP_DOWNLOAD_ID;
 function clpGetBought(){
   try { return JSON.parse(localStorage.getItem(CLP_GROCERY_KEY) || '[]'); } catch(e) { return []; }
 }
@@ -756,10 +762,8 @@ function renderProgressExport(){
   clpSetText('[data-stat="streak"]', streak);
   clpSetText('[data-stat="days"]', totalDaysLogged);
   clpSetText('[data-stat="goals"]', goalsDone + '/' + totalActionsInPlan);
-  if (bestPct >= 0) {
-    clpSetText('[data-stat="best"]', bestPct + '%');
-    clpSetText('[data-stat-label="best"]', 'best month · ' + bestLabel);
-  }
+  clpSetText('[data-stat="best"]', bestPct >= 0 ? bestPct + '%' : '0%');
+  clpSetText('[data-stat-label="best"]', bestPct >= 0 ? 'best month · ' + bestLabel : 'best month');
   var emptyEl = document.querySelector('[data-track-empty]');
   var contentEl = document.querySelector('[data-track-content]');
   if (emptyEl) emptyEl.style.display = totalDaysLogged === 0 ? 'block' : 'none';
@@ -1185,7 +1189,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
 <style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased;}</style>
 </head>
 <body>${clone.outerHTML}
-<script>${buildExportScript(roadmapId, checkins, monthsData)}</script>
+<script>${buildExportScript(roadmapId, monthsData)}</script>
 </body>
 </html>`
     const blob = new Blob([html], { type: 'text/html' })

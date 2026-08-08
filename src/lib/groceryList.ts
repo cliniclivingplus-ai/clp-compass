@@ -40,7 +40,7 @@ const NOISE_WORDS = /\b(fresh|finely|coarsely|roughly|thinly|thickly|small|mediu
 const SPELLING_VARIANTS: Record<string, string> = { chilly: 'chilli', chili: 'chilli' }
 
 const UNIT_ALT = 'cups?|tbsps?|tbsp\\.?|tablespoons?|tsps?|tsp\\.?|teaspoons?|grams?|g|kg|mg|ml|milliliters?|l|liters?|oz\\.?|ounces?|lbs?|lb\\.?|pounds?|cloves?|inch(?:es)?|pinch(?:es)?|handfuls?|slices?|pieces?|bunch(?:es)?|stalks?|sprigs?|cans?|packets?|jars?|tins?|boxes?|each|drizzles?|splash(?:es)?|dash(?:es)?'
-const LEADING_QTY = /^[\d½¼¾⅓⅔]+(\s*[\-\/.]\s*[\d½¼¾⅓⅔]+)*\s*/
+const LEADING_QTY = /^[\d½¼¾⅓⅔]+(\s*(?:[\-\/.]|\bto\b)\s*[\d½¼¾⅓⅔]+)*\s*/i
 const LEADING_MULT = /^[x×]\s*/i
 const LEADING_UNIT = new RegExp(`^(?:${UNIT_ALT})\\.?\\s+`, 'i')
 const LEADING_OF = /^of\s+/i
@@ -49,6 +49,46 @@ const TRAILING_QTY_UNIT = new RegExp(`\\s+[\\d½¼¾⅓⅔]+(\\s*[\\-/.]\\s*[\\d
 // a recipe sub-heading baked into the ingredient text, not an ingredient —
 // skip it entirely rather than listing it as something to shop for.
 const ALL_CAPS_HEADER = /^[A-Z][A-Z\s\-]+$/
+
+// Some source PDFs laid ingredients and directions out in side-by-side
+// columns, or had a full steps paragraph appended after the real ingredient
+// list — either way, extraction read it as one line of "ingredients" text
+// per PDF row, so leaked instruction text ends up mixed in. A real
+// ingredient line is a short noun phrase; an instruction is a full sentence
+// (starts with an imperative/temporal marker, ends with a period). Never
+// invents a name — only ever trims a line down to its real-ingredient
+// prefix, or drops a line that names no ingredient at all.
+const INSTRUCTION_START = /^(add|cook|heat|mix|boil|simmer|saut[eé]|roast|bake|garnish|drain|rinse|soak|transfer|grind|blend|crackle|temper|roll|cover|crush|whisk|fold|marinate|dry\s+roast|pressure\s+cook|preheat|pre-heat|combine|toast|plate|serve|repeat|once|then|now|next|in\s+a|in\s+the|for\s+the)\b/i
+const ENDS_LIKE_A_SENTENCE = /[.!]\s*$/
+// A run of 2+ spaces mid-line is a leftover column gap from a two-column
+// layout — the real ingredient is reliably on the left of it.
+const COLUMN_GAP = /\s{2,}/
+
+function stripLeakedInstructionText(line: string): string {
+  const gapIdx = line.search(COLUMN_GAP)
+  if (gapIdx > 0) {
+    const left = line.slice(0, gapIdx).trim()
+    if (left && !INSTRUCTION_START.test(left)) return left
+    if (!left) return ''
+  }
+  // No column gap — a real ingredient with a full instruction sentence
+  // bolted on after the first comma ("1 cup chole, Pressure cook until
+  // soft.") still has a rescuable prefix; keep just that — but only if the
+  // prefix itself doesn't also read as an instruction ("Add cashew nuts and
+  // peanuts, cook till golden brown." has no real ingredient to rescue).
+  const commaIdx = line.indexOf(',')
+  if (commaIdx > 0) {
+    const prefix = line.slice(0, commaIdx).trim()
+    const rest = line.slice(commaIdx + 1).trim()
+    if (!INSTRUCTION_START.test(prefix) && rest.length > 12 && (INSTRUCTION_START.test(rest) || ENDS_LIKE_A_SENTENCE.test(rest))) {
+      return prefix
+    }
+  }
+  // No rescuable prefix — if the whole line reads like an instruction
+  // rather than an ingredient, it names nothing to buy.
+  if (INSTRUCTION_START.test(line) || ENDS_LIKE_A_SENTENCE.test(line)) return ''
+  return line
+}
 // Food words that are naturally shopped for/referred to in plural — don't
 // singularize these even though they end in "s".
 const KEEP_PLURAL = new Set(['oats', 'peas', 'greens', 'sprouts', 'seeds', 'nuts', 'beans', 'lentils', 'noodles', 'tortillas', 'chickpeas', 'breadcrumbs', 'walnuts', 'almonds', 'grapes', 'oats'])
@@ -65,10 +105,21 @@ function singularizeWord(word: string): string {
 
 function extractItemName(line: string): string {
   let s = line.trim()
+  // A bad-encoding replacement character (�) shows up where a bullet or a
+  // fraction glyph (½, etc.) should be in some source PDFs — it carries no
+  // recoverable meaning, so it's dropped rather than shown to the patient.
+  s = s.replace(/�/g, ' ').replace(/\s+/g, ' ').trim()
   if (ALL_CAPS_HEADER.test(s) && s.length >= 3) return ''
   // "STIR-FRY VEGETABLES: 1 large carrot" / "Optional Toppings: Banana" —
   // the label before the colon is a heading, the real ingredient follows it.
   if (s.includes(':')) s = s.slice(s.lastIndexOf(':') + 1).trim()
+  s = stripLeakedInstructionText(s)
+  if (!s) return ''
+  // A "(" with no matching ")" on this line means the parenthetical wraps
+  // onto the next physical line in the source PDF — the closing half is
+  // handled separately (buildGroceryList skips the continuation line(s)),
+  // this just trims the dangling open half off the real ingredient.
+  s = s.replace(/\([^)]*$/, '').trim()
   s = s.replace(/\([^)]*\)/g, '')
   s = s.split(',')[0]
   s = s.replace(/\bto taste\b/gi, '')
@@ -117,7 +168,22 @@ function categorize(name: string): string {
 export function buildGroceryList(recipes: { ingredients: string }[]): GroceryCategory[] {
   const buckets = new Map<string, Map<string, string>>()
   for (const recipe of recipes) {
+    // A long descriptive ingredient can wrap its "(...)" aside across
+    // several physical lines in the source PDF ("(ground flaxseed" /
+    // "powder mixed with 3 tbsp water and" / "kept aside for 10
+    // minutes)") — extractItemName trims the dangling open paren off the
+    // real ingredient on the first line; everything after that, until the
+    // paren actually closes, is just a continuation fragment with nothing
+    // new to buy, so it's skipped rather than shown as its own item.
+    let insideWrappedParen = false
     for (const line of splitRecipeLines(recipe.ingredients || '')) {
+      if (insideWrappedParen) {
+        if (line.includes(')')) insideWrappedParen = false
+        continue
+      }
+      const opens = (line.match(/\(/g) || []).length
+      const closes = (line.match(/\)/g) || []).length
+      if (opens > closes) insideWrappedParen = true
       const name = extractItemName(line)
       if (!name || name.length < 2) continue
       const display = titleCase(name)

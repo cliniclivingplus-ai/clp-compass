@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
-import { ArrowLeft, Plus, Pencil, FileText, StickyNote, LayoutDashboard, Calendar, ChevronRight, Microscope, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Plus, Pencil, FileText, StickyNote, LayoutDashboard, Calendar, ChevronRight, Microscope, Trash2, X, Link2, Check } from 'lucide-react'
 import ReportsTab from '@/components/ReportsTab'
 
 // ── Design tokens ────────────────────────────────────────────────────
@@ -434,6 +434,19 @@ function NotesTab({ sessions }: { sessions: Session[] }) {
 }
 
 function DashboardTab({ roadmaps }: { roadmaps: Roadmap[] }) {
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  // The dashboard link is the thing to actually send a patient — a public,
+  // no-login page (see src/app/dashboard/[roadmapId]/page.tsx) that never
+  // exposes any coach-side app access, unlike sending the downloaded HTML
+  // file itself. Copies the full absolute URL so it's paste-ready for
+  // WhatsApp/email/SMS.
+  function copyLink(id: string) {
+    const url = `${window.location.origin}/dashboard/${id}`
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(id)
+      setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 2000)
+    })
+  }
   if (roadmaps.length === 0) {
     return <EmptyState icon={LayoutDashboard} title="No dashboard yet" body="Generate a dashboard from any session to build the patient's personalised plan. It'll appear here for easy reference across visits." />
   }
@@ -453,9 +466,15 @@ function DashboardTab({ roadmaps }: { roadmaps: Roadmap[] }) {
               {i === 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: C.green, background: C.greenSoft, borderRadius: 20, padding: '2px 8px' }}>CURRENT</span>}
               <span style={{ fontSize: 12, color: C.faint }}>{fmtDate(r.created_at)}</span>
             </div>
-            <Link href={`/dashboard/${r.id}`} target="_blank" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, background: C.green, color: '#fff', fontSize: 12.5, fontWeight: 700, textDecoration: 'none', flexShrink: 0 }}>
-              <LayoutDashboard size={13} /> Open dashboard
-            </Link>
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              <button onClick={() => copyLink(r.id)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.line}`, background: '#fff', color: C.ink, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+                {copiedId === r.id ? <><Check size={13} color={C.green} /> Copied</> : <><Link2 size={13} /> Copy link</>}
+              </button>
+              <Link href={`/dashboard/${r.id}`} target="_blank" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, background: C.green, color: '#fff', fontSize: 12.5, fontWeight: 700, textDecoration: 'none' }}>
+                <LayoutDashboard size={13} /> Open dashboard
+              </Link>
+            </div>
           </div>
           {r.overview && <p style={{ fontSize: 13, color: C.muted, margin: '8px 0 0', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{r.overview}</p>}
         </div>
